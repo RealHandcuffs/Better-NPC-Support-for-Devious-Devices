@@ -1,0 +1,11 @@
+Version 0.1 Beta 1
+- Refre​​​​​sh effects on NPC after NPC is (re)loaded by game engine.
+- Refresh effects on NPC after NPC inventory changed.
+- Sheathe weapons after bound NPC draws weapon, and try to keep them sheathed.
+- Prevent usage of weapons/spells when NPC is wearing bondage mittens or is bound.
+- Allow bound combat if enabled in DD settings and NPC's feet are free.
+- Try to fix rendered items not being equipped (e.g. compatibility problems with mods like AllGUD).
+- Try to fix the issue that giving a NPC a device is sometimes not registered by the game engine (often when the player has multiple identical devices in inventory).
+
+
+​
