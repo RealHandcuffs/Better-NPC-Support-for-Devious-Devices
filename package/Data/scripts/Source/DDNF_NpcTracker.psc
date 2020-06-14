@@ -15,7 +15,6 @@ Weapon Property DummyWeapon Auto
 zadLibs Property DDLibs Auto
 
 Bool Property UseBoundCombat Auto
-Bool _addLock
 
 ;
 ; Add a NPC to the tracked NPCs.
@@ -25,24 +24,18 @@ Bool _addLock
 ;
 Bool Function Add(Actor npc)
     ; find a free alias and put the npc into the alias
-    While (_addLock)
-        Utility.Wait(0.1)
-    EndWhile
-    _addLock = true
-    If (npc == Player || npc.HasKeyword(TrackingKeyword)) ; catch api misuse
+    If (npc == Player) ; catch api misuse
         Return true
     EndIf
     Int index = 0
     Int count = GetNumAliases()
     While (index < count)
         ReferenceAlias refAlias = GetNthAlias(index) as ReferenceAlias
-        If (refAlias.ForceRefIfEmpty(npc))
-            _addLock = false
+        If (npc.HasKeyword(TrackingKeyword) || refAlias.ForceRefIfEmpty(npc))
             Return true
         EndIf
         index += 1
     EndWhile
-    _addLock = false
     ; unable to track, all reference aliases were full :(
     ; the mod will probably misbehave but hopefully not in too bad a way
     Return false

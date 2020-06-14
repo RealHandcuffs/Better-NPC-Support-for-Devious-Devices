@@ -7,5 +7,5 @@ Version 0.1 Beta 1
 - Try to fix rendered items not being equipped (e.g. compatibility problems with mods like AllGUD).
 - Try to fix the issue that giving a NPC a device is sometimes not registered by the game engine (often when the player has multiple identical devices in inventory).
 
-
-​
+​Version 0.1 Beta 2
+- Fix: Mod can become stuck in certain situations, stopping to work.
