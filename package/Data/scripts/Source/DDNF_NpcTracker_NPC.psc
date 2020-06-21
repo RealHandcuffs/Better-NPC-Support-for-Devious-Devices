@@ -37,17 +37,19 @@ Function Clear() ; override
     ; reset npc state before clearing
     UnregisterForUpdate() ; may do nothing
     Actor npc = GetReference() as Actor
-    If (_useUnarmedCombatPackage)
-        UnregisterForAnimationEvent(npc, "BeginWeaponDraw")
-        npc.RemoveFromFaction(npcTracker.UnarmedCombatants)
-        npc.RemoveFromFaction(npcTracker.Helpless)
+    If (npc != None)
+        parent.Clear()
+        DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
+        If (_useUnarmedCombatPackage)
+            UnregisterForAnimationEvent(npc, "BeginWeaponDraw")
+            npc.RemoveFromFaction(npcTracker.UnarmedCombatants)
+            npc.RemoveFromFaction(npcTracker.Helpless)
+        EndIf
+        Int dummyWeaponCount = npc.GetItemCount(npcTracker.DummyWeapon) ; used to restore ability to draw weapons
+        If (dummyWeaponCount > 0)
+            npc.RemoveItem(npcTracker.DummyWeapon, aiCount=dummyWeaponCount)
+        EndIf
     EndIf
-    DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
-    Int dummyWeaponCount = npc.GetItemCount(npcTracker.DummyWeapon) ; used to restore ability to draw weapons
-    If (dummyWeaponCount > 0)
-        npc.RemoveItem(npcTracker.DummyWeapon, aiCount=dummyWeaponCount)
-    EndIf
-    parent.Clear()
 EndFunction
 
 
