@@ -52,11 +52,11 @@ then
   fi
 else
   REGISTRY=$(reg query "HKLM\SOFTWARE\7-Zip") || { >&2 echo "ERROR: Unable to find 7-Zip registry key."; exit 1; }
-  PATH_7ZIP=$(echo "$REGISTRY" | sed -rn "s/\s*Path64\s+REG_SZ\s+(.*)/\1/p" | sed 's/\\/\//g' | sed 's/://')
-  PATH_7ZIP="/${PATH_7ZIP%/}"
-  if [[ -f "$PATH_7ZIP/7z.exe" ]]
+  PATH_7ZIP=$(echo "$REGISTRY" | sed -rn "s/\s*Path64\s+REG_SZ\s+(.*)/\1/p")
+  PATH_7ZIP=$(cygpath -u "$PATH_7ZIP\7z.exe")
+  if [[ -f "$PATH_7ZIP" ]]
   then
-    TOOL_7ZIP="$PATH_7ZIP/7z.exe"
+    TOOL_7ZIP="$PATH_7ZIP"
     [[ $GENERATE == 0 ]] && echo "7-Zip: $TOOL_7ZIP"
   fi
 fi
@@ -80,9 +80,9 @@ then
   fi
 else
   REGISTRY=$(reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Steam App 72850") || { >&2 echo "ERROR: Unable to find Fallout 4 registry key."; exit 2; }
-  PATH_SKYRIM=$(echo "$REGISTRY" | sed -rn "s/\s*InstallLocation\s+REG_SZ\s+(.*)/\1/p" | sed -e 's/\\/\//g' -e 's/://')
-  PATH_SKYRIM="/${PATH_SKYRIM%/}"
-  if [[ -d "$PATH_SKYRIM" ]]
+  PATH_SKYRIM=$(echo "$REGISTRY" | sed -rn "s/\s*InstallLocation\s+REG_SZ\s+(.*)/\1/p")
+  PATH_SKYRIM=$(cygpath -u "$PATH_SKYRIM")
+  if [[ -f "$PATH_SKYRIM/TESV.exe" ]]
   then
     DIR_SKYRIM="$PATH_SKYRIM"
     [[ $GENERATE == 0 ]] && echo "Skyrim: $DIR_SKYRIM"
@@ -108,12 +108,12 @@ then
   fi
 else
   REGISTRY=$(reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Steam App 202480") || { >&2 echo "ERROR: Unable to find Fallout 4 registry key."; exit 2; }
-  PATH_SKYRIM_CREATION_KIT=$(echo "$REGISTRY" | sed -rn "s/\s*InstallLocation\s+REG_SZ\s+(.*)/\1/p" | sed -e 's/\\/\//g' -e 's/://')
-  PATH_SKYRIM_CREATION_KIT="/${PATH_SKYRIM_CREATION_KIT%/}"
-  if [[ -d "$PATH_SKYRIM_CREATION_KIT" ]]
+  PATH_SKYRIM_CREATION_KIT=$(echo "$REGISTRY" | sed -rn "s/\s*InstallLocation\s+REG_SZ\s+(.*)/\1/p")
+  PATH_SKYRIM_CREATION_KIT=$(cygpath -u "$PATH_SKYRIM_CREATION_KIT")
+  if [[ -f "$PATH_SKYRIM_CREATION_KIT/CreationKit.exe" ]]
   then
     DIR_SKYRIM_CREATION_KIT="$PATH_SKYRIM_CREATION_KIT"
-    [[ $GENERATE == 0 ]] && echo "Skyrim: $DIR_SKYRIM_CREATION_KIT"
+    [[ $GENERATE == 0 ]] && echo "Skyrim Creation Kit: $DIR_SKYRIM_CREATION_KIT"
   fi
 fi
 
