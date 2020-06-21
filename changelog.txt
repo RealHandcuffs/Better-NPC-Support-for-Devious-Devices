@@ -9,3 +9,6 @@ Version 0.1 Beta 1
 
 ​Version 0.1 Beta 2
 - Fix: Mod can become stuck in certain situations, stopping to work.
+
+Version 0.1 Beta 3
+- Fix: Factions for combat packages were not cleaned up when NPCs were removed from the reference alias.
