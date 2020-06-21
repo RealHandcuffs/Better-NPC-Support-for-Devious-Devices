@@ -47,7 +47,7 @@ scripts/find_tools.sh -g >> build/setenv.sh
 . build/setenv.sh
 rm ./build/setenv.sh
 
-# clean if flag was given
+# clean if not told otherwise using the -n flag
 if [[ $CLEAN == 1 ]]
 then
   if [[ "$QUIET" == "" ]]
@@ -60,7 +60,7 @@ fi
 # compile papyrus scripts
 scripts/compile_papyrus.sh $QUIET
 
-# copy remaining files from package to build
+# copy remaining files to build directory
 if [[ "$QUIET" == "" ]]
 then
   echo Copying files.
@@ -69,7 +69,7 @@ cp -r -p package build
 cp -p changelog.txt build/package
 cp -p LICENSE.txt build/package
 
-# create archive of build/package
+# create archive of build/package folder
 if [[ "$QUIET" == "" ]]
 then
   echo "Creating archive:"
