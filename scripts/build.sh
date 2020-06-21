@@ -65,9 +65,9 @@ if [[ "$QUIET" == "" ]]
 then
   echo Copying files.
 fi
-cp -r package build
-cp changelog.txt build/package
-cp LICENSE.txt build/package
+cp -r -p package build
+cp -p changelog.txt build/package
+cp -p LICENSE.txt build/package
 
 # create archive of build/package
 if [[ "$QUIET" == "" ]]
