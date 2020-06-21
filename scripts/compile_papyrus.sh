@@ -41,7 +41,7 @@ scripts/find_tools.sh -g >> build/setenv.sh
 . build/setenv.sh
 rm ./build/setenv.sh
 
-# find base source directory for papyrus compiler (installed with creation kit)
+# find source directory for papyrus compiler (installed with creation kit)
 PAPYRUS_SOURCE="$DIR_SKYRIM_CREATION_KIT/Data/Scripts/Source"
 if [[ ! -f "$PAPYRUS_SOURCE/TESV_Papyrus_Flags.flg" ]]
 then
@@ -71,7 +71,7 @@ function compile_folder() {
   cd "$BASE_DIR/$1/Source"
   files=()
   pids=()
-  # the for loops works because the folders (which correspond to namespaces) have no whitespace
+  # the for loops works because the script source files have no whitespace in their names
   for f in $(find . -name '*.psc' |  sed -e 's/.\///' -e 's/\//\\/g')
   do
     files+=( "$f" )
@@ -99,5 +99,5 @@ function compile_folder() {
   cd "$BASE_DIR"
 }
 
-# call the function for the package/package/Data/scripts folder, using LL_FourPlay as dependency
+# call the function for the package/package/Data/scripts folder
 compile_folder "package/Data/scripts"
