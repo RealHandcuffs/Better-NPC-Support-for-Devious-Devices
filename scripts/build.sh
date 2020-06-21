@@ -66,6 +66,8 @@ then
   echo Copying files.
 fi
 cp -r package build
+cp changelog.txt build/package
+cp LICENSE.txt build/package
 
 # create archive of build/package
 if [[ "$QUIET" == "" ]]
