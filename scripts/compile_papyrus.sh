@@ -52,7 +52,6 @@ then
       exit -1
     fi
 fi
-PAPYRUS_SOURCE_WINPATH=$(echo "$PAPYRUS_SOURCE" | sed -e 's/\///' -e 's/\//:\\/' -e 's/\//\\/g')
 
 # this same directory also needs to contain SKSE sources and sources of all dependencies
 if [[ ! -f "$PAPYRUS_SOURCE/SKSE.psc" ]]
@@ -72,10 +71,10 @@ function compile_folder() {
   files=()
   pids=()
   # the for loops works because the script source files have no whitespace in their names
-  for f in $(find . -name '*.psc' |  sed -e 's/.\///' -e 's/\//\\/g')
+  for f in $(ls -1a *.psc)
   do
     files+=( "$f" )
-    "$DIR_SKYRIM_CREATION_KIT/Papyrus Compiler/PapyrusCompiler.exe" "$f" -optimize -quiet -flags="$PAPYRUS_SOURCE_WINPATH\\TESV_Papyrus_Flags.flg" -import="$PAPYRUS_SOURCE_WINPATH" -output="$(echo "$BASE_DIR/build/$1" | sed -e 's/\///' -e 's/\//:\\/' -e 's/\//\\/g')" &
+    "$DIR_SKYRIM_CREATION_KIT/Papyrus Compiler/PapyrusCompiler.exe" "$f" -optimize -quiet -flags="$(cygpath -w "$PAPYRUS_SOURCE/TESV_Papyrus_Flags.flg")" -import="$(cygpath -w "$PAPYRUS_SOURCE")" -output="$(cygpath -w "$BASE_DIR/build/$1")" &
     pids+=( "$!" )
   done
   failures=()
@@ -87,7 +86,7 @@ function compile_folder() {
   then
     for file in "${failures[@]}"
     do
-      echo "ERROR: Compilation failed for: $1/Source/User/$(echo $file | sed 's/\\/\//g')."
+      echo "ERROR: Compilation failed for: $1/Source/$file."
     done
     exit -1
   else
@@ -99,5 +98,5 @@ function compile_folder() {
   cd "$BASE_DIR"
 }
 
-# call the function for the package/package/Data/scripts folder
+# call the function for the package/Data/scripts folder
 compile_folder "package/Data/scripts"
