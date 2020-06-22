@@ -19,12 +19,12 @@ DDNF_NpcTracker Property NpcTracker Auto
 Float Property SecondsBetweenScans = 10.0 AutoReadOnly
 
 
-Event HandleGameLoaded()
+Function HandleGameLoaded(Bool upgrade)
     ; refresh all event registrations
     RegisterForModEvent("DDI_DeviceEquipped", "OnDDI_DeviceEquipped") 
    ; scan "soon" after loading game
     RegisterForSingleUpdate(1.0)
-EndEvent
+EndFunction
 
 
 Function HandleLoadingScreen()
@@ -41,6 +41,7 @@ EndEvent
 
 
 Event OnUpdate()
+Debug.StartStackProfiling();TODO
     ; update event, scan for and fix all nearby NPCs and then queue another update event
     ; stopping the NPC tracker will temporarily disable this mod
     ; starting it again will re-enable this mod
@@ -51,6 +52,7 @@ Event OnUpdate()
             ; not really expected but might happen when loading screen is triggered while scan is ongoing
             ; bail out
             RegisterForSingleUpdate(SecondsBetweenScans)
+Debug.StopStackProfiling();TODO
             Return
         EndIf
         NpcScanner.Start() ; latent function, will wait and return after the quest has finished starting
@@ -58,7 +60,7 @@ Event OnUpdate()
         Int index = 0
         Int count = NpcScanner.GetNumAliases()
         While (index < count)
-            Actor maybeFoundNpc = (NpcScanner.GetNthAlias(index) as ReferenceAlias).GetActorRef()
+            Actor maybeFoundNpc = (NpcScanner.GetNthAlias(index) as ReferenceAlias).GetReference() as Actor
             If (maybeFoundNpc != None)
                 If (!NpcTracker.Add(maybeFoundNpc))
                     ; we ran out of space in the tracker, abort after this loop even if all scanner reference aliases were occupied
@@ -80,4 +82,5 @@ Event OnUpdate()
         ; slow down
         RegisterForSingleUpdate(SecondsBetweenScans)
     EndIf
+Debug.StopStackProfiling();TODO
 EndEvent

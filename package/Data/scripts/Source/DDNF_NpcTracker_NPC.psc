@@ -22,12 +22,7 @@ Bool Function ForceRefIfEmpty(ObjectReference akNewRef) ; override
     _ignoreNotEquippedInNextFixup = false
     _fixupLock = false
     If (akNewRef != None)
-        If (akNewRef.Is3DLoaded())
-            RegisterForFixup()
-        Else
-            RegisterForSingleUpdate(8.0)
-            ; the update will stop tracking the NPC if still not loaded
-        EndIf
+        RegisterForFixup()
     EndIf
     Return true
 EndFunction
@@ -35,10 +30,10 @@ EndFunction
 
 Function Clear() ; override
     ; reset npc state before clearing
-    UnregisterForUpdate() ; may do nothing
     Actor npc = GetReference() as Actor
     If (npc != None)
         parent.Clear()
+        UnregisterForUpdate() ; may do nothing
         DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
         If (_useUnarmedCombatPackage)
             UnregisterForAnimationEvent(npc, "BeginWeaponDraw")
@@ -144,10 +139,14 @@ Function RegisterForFixup()
 EndFunction
 
 
-Function HandleGameLoaded()
+Function HandleGameLoaded(Bool upgrade)
     Actor npc = GetReference() as Actor
-    If (npc != None && !npc.Is3DLoaded())
-        RegisterForSingleUpdate(8.0) ; same as OnUnload
+    If (npc != None)
+        If (upgrade)
+            Clear() ; NPC will be re-added if found again, reinitializing everything
+        ElseIf (!npc.Is3DLoaded())
+            RegisterForSingleUpdate(8.0) ; same as OnUnload (catch it in case it was missed)
+        EndIf
     EndIf
 EndFunction
 
@@ -163,16 +162,20 @@ EndFunction
 
 
 Event OnUpdate()
+Debug.StartStackProfiling();TODO
     Actor npc = GetReference() as Actor
     If (npc == None)
         Return ; race condition
+Debug.StopStackProfiling();TODO        
     EndIf
     If (!npc.Is3DLoaded() || npc.IsDead())
         Clear()
+Debug.StopStackProfiling();TODO        
         Return
     EndIf
     If (_fixupLock)
         RegisterForFixup() ; already running, postpone
+Debug.StopStackProfiling();TODO        
         Return
     EndIf
     _fixupLock = true
@@ -328,6 +331,7 @@ Event OnUpdate()
     
     ; done
     _fixupLock = false
+Debug.StopStackProfiling();TODO
 EndEvent
 
 

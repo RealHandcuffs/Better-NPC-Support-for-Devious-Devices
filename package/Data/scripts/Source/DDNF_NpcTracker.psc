@@ -24,14 +24,14 @@ Bool Property UseBoundCombat Auto
 ;
 Bool Function Add(Actor npc)
     ; find a free alias and put the npc into the alias
-    If (npc == Player) ; catch api misuse
+    If (npc == Player || npc.HasKeyword(TrackingKeyword)) ; catch api misuse
         Return true
     EndIf
     Int index = 0
     Int count = GetNumAliases()
     While (index < count)
         ReferenceAlias refAlias = GetNthAlias(index) as ReferenceAlias
-        If (npc.HasKeyword(TrackingKeyword) || refAlias.ForceRefIfEmpty(npc))
+        If (refAlias.ForceRefIfEmpty(npc))
             Return true
         EndIf
         index += 1
@@ -63,11 +63,11 @@ Function HandleDeviceEquipped(Actor akActor, Armor inventoryDevice, Bool checkFo
 EndFunction
 
 
-Function HandleGameLoaded()
+Function HandleGameLoaded(Bool upgrade)
     Int index = 0
     Int count = GetNumAliases()
     While (index < count)
-        (GetNthAlias(index) as DDNF_NpcTracker_NPC).HandleGameLoaded()
+        (GetNthAlias(index) as DDNF_NpcTracker_NPC).HandleGameLoaded(upgrade)
         index += 1
     EndWhile
     ValidateOptions()

@@ -68,13 +68,20 @@ fi
 cp -r -p package build
 cp -p changelog.txt build/package
 cp -p LICENSE.txt build/package
+VERSION=$(cat build/package/Data/scripts/Source/DDNF_MainQuest_Player.psc | sed -nr 's/^\s*String\s+Property\s+Version\s*=\s*"([^"]+)"\s+AutoReadOnly\s*$/\1/p')
+if [[ "$QUIET" == "" ]]
+then
+  echo "  Version: $VERSION"
+fi
+mv build/package/FOMod/info.xml build/package/FOMod/info.xml.old
+envsubst < build/package/FOMod/info.xml.old > build/package/FOMod/info.xml
+rm build/package/FOMod/info.xml.old
 
 # create archive of build/package folder
 if [[ "$QUIET" == "" ]]
 then
   echo "Creating archive:"
 fi
-VERSION=$(cat build/package/FOMod/info.xml | sed -nr 's/.*<Version>([^<]+)<\/Version>.*/\1/p')
 "$TOOL_7ZIP" a -t7z -mx=9 -mmt=off "build\Better NPC Support for Devious Devices $VERSION.7z" ".\build\package\*" > /dev/null
 if [[ "$QUIET" == "" ]]
 then

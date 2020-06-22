@@ -5,31 +5,46 @@ Scriptname DDNF_MainQuest_Player extends ReferenceAlias
 
 Formlist Property EmptyFormlist Auto
 
+String Property Version = "0.1 beta 4 pre" AutoReadOnly
+String _lastVersion
+
 
 Event OnInit()
-    HandleGameLoaded()
+    Debug.Notification("[BNSfDD] Installing: " + Version)
+    HandleGameLoaded(false)
+    Debug.Notification("[BNSfDD] Done.")
 EndEvent
 
 
 Event OnPlayerLoadGame()
-    HandleGameLoaded()
+Debug.StartStackProfiling();TODO
+    DDNF_MainQuest mainQuest = GetOwningQuest() as DDNF_MainQuest    
+    If (_lastVersion == Version)
+        HandleGameLoaded(false)
+    Else
+        Debug.Notification("[BNSfDD] Upgrading to: " + Version)
+        HandleGameLoaded(true)
+        _lastVersion = Version
+        Debug.Notification("[BNSfDD] Done.")
+    EndIf
+Debug.StopStackProfiling();TODO
 EndEvent
 
 
-Function HandleGameLoaded()
+Function HandleGameLoaded(Bool upgrade)
     ; refresh all event registrations
     UnregisterForAllMenus()
     RegisterForMenu("ContainerMenu")
     RegisterForMenu("Journal Menu")
     RemoveAllInventoryEventFilters()
     AddInventoryEventFilter(EmptyFormlist)
-    ; tell main quest and npc tracker quest to refresh, too
+    ; notify main quest and npc tracker quest
     DDNF_MainQuest mainQuest = GetOwningQuest() as DDNF_MainQuest
     DDNF_NPCTracker npcTracker = mainQuest.NpcTracker
     If (npcTracker.IsRunning()) ; stopping npc tracker will disable this mod
-        npcTracker.HandleGameLoaded()
+        npcTracker.HandleGameLoaded(upgrade)
     EndIf
-    MainQuest.HandleGameLoaded()
+    MainQuest.HandleGameLoaded(upgrade)
 EndFunction
 
 

@@ -1,7 +1,7 @@
 <fomod>
   <Name>Better NPC Support for Devious Devices</Name>
   <Author>Kharos</Author>
-  <Version>0.1 Beta 3</Version>
+  <Version>$VERSION</Version>
   <Description>This experimental add-on to Devious Devices improves support for NPCs.</Description>
   <Website>https://www.loverslab.com/files/file/13237-better-npc-support-for-devious-devices/</Website>
 </fomod>
