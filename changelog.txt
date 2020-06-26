@@ -12,3 +12,10 @@ Version 0.1 Beta 1
 
 Version 0.1 Beta 3
 - Fix: Factions for combat packages were not cleaned up when NPCs were removed from the reference alias.
+
+Version 0.1 Beta 4
+- Recognize upgrades from one version to another one and try to handle the situation gracefully.
+- Optimize all papyrus scripts after using the built-in profiler.
+- Remember devices of NPCs as long as they are being tracked to prevent repeaded inventory scans.
+- Try to be smarter about when to re-apply animations of a NPC (zadBoundCombatScript.EvaluateAA) as doing so is expensive and slow.
+- Allow pausing the mod by using "stopquest DDNF_NpcTracker". Use "startquest DDNF_NpcTracker" to start the mod again.
