@@ -15,14 +15,34 @@ Scriptname DDNF_MainQuest extends Quest
 Quest Property NpcScanner Auto
 DDNF_NpcTracker Property NpcTracker Auto
 
-; could also live in a config menu...
-Float Property SecondsBetweenScans = 10.0 AutoReadOnly
+Float Property SecondsBetweenScans = 10.0 AutoReadOnly ; could also live in a config menu...
+
+Alias[] _cachedScannerAliases ; performance optimization
+
+
+Alias[] Function GetScannerAliases()
+    If (_cachedScannerAliases.Length == 0)
+        Int count = NpcScanner.GetNumAliases()
+        Alias[] aliases = Utility.CreateAliasArray(count)
+        Int index = 0
+        While (index < count)
+            aliases[index] = NpcScanner.GetNthAlias(index)
+            index += 1
+        EndWhile
+        _cachedScannerAliases = aliases
+    EndIf
+    Return _cachedScannerAliases
+EndFunction
 
 
 Function HandleGameLoaded(Bool upgrade)
+    If (upgrade)
+        Alias[] emptyArray
+        _cachedScannerAliases = emptyArray ; the number of aliases might have changed
+    EndIf
     ; refresh all event registrations
     RegisterForModEvent("DDI_DeviceEquipped", "OnDDI_DeviceEquipped") 
-   ; scan "soon" after loading game
+    ; scan "soon" after loading game
     RegisterForSingleUpdate(1.0)
 EndFunction
 
@@ -45,41 +65,41 @@ Debug.StartStackProfiling();TODO
     ; update event, scan for and fix all nearby NPCs and then queue another update event
     ; stopping the NPC tracker will temporarily disable this mod
     ; starting it again will re-enable this mod
-    Bool runAgainVerySoon
+    Bool runInFastMode
     If (NpcTracker.IsRunning())
         Bool allFoundNpcsAdded = true
         If (!NpcScanner.IsStopped())
             ; not really expected but might happen when loading screen is triggered while scan is ongoing
             ; bail out
-            RegisterForSingleUpdate(SecondsBetweenScans)
+            RegisterForSingleUpdate(1.0) ; will probably get overwritten by code at the end of this function
 Debug.StopStackProfiling();TODO
             Return
         EndIf
         NpcScanner.Start() ; latent function, will wait and return after the quest has finished starting
-        Int foundNpcCount = 0
+        Int addedNpcCount = 0
         Int index = 0
-        Int count = NpcScanner.GetNumAliases()
-        While (index < count)
-            Actor maybeFoundNpc = (NpcScanner.GetNthAlias(index) as ReferenceAlias).GetReference() as Actor
+        Alias[] aliases = GetScannerAliases()
+        While (index < aliases.Length)
+            Actor maybeFoundNpc = (aliases[index] as ReferenceAlias).GetReference() as Actor
             If (maybeFoundNpc != None)
-                If (!NpcTracker.Add(maybeFoundNpc))
-                    ; we ran out of space in the tracker, abort after this loop even if all scanner reference aliases were occupied
-                    allFoundNpcsAdded = false
+                If (NpcTracker.Add(maybeFoundNpc))
+                    addedNpcCount += 1
                 EndIf
-                foundNpcCount += 1
             EndIf
             index += 1
         EndWhile
         NpcScanner.Reset()
         NpcScanner.Stop()
-        ; i.e. run again quickly if all scanner reference aliases were occupied, and all all found NPCs are tracked
+        ; i.e. run again quickly if all scanner reference aliases were occupied, and all found NPCs are tracked
         ; otherwise slow down
-        runAgainVerySoon = foundNpcCount == count && allFoundNpcsAdded
+        runInFastMode = index == addedNpcCount && addedNpcCount > 0
+    Else
+        NpcTracker.Clear()
+        runInFastMode = false
     EndIf
-    If (runAgainVerySoon)
+    If (runInFastMode)
         RegisterForSingleUpdate(1.0)
     Else
-        ; slow down
         RegisterForSingleUpdate(SecondsBetweenScans)
     EndIf
 Debug.StopStackProfiling();TODO
