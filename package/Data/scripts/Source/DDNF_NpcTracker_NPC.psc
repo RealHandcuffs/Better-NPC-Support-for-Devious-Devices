@@ -18,17 +18,20 @@ Bool _hasDummyWeapon
 
 ; state of script
 Bool _ignoreNotEquippedInNextFixup
+Bool _animationIsApplied
 Bool _fixupLock
 
 
 Function HandleGameLoaded(Bool upgrade)
     Actor npc = GetReference() as Actor
     If (npc != None)
-        If (upgrade)
-            Clear() ; NPC will be re-added if found again, reinitializing everything
-        ElseIf (npc.IsDead()) ; safety net in case OnDeath was missed
-            Clear()
-        ElseIf (!npc.Is3DLoaded()) ; safety net in case OnUnload was missed
+        ; clear on upgrade, NPC will be re-added if found again
+        ; also clear if NPC is dead (safety net in case OnDeath was missed somehow)
+        If (upgrade || npc.IsDead())
+            Clear() 
+        ; also do a safety check in case OnUnload was missed somehow
+        ElseIf (!npc.Is3DLoaded())
+            _loaded = false
             RegisterForSingleUpdate(8.0)
         EndIf
     EndIf
@@ -64,6 +67,7 @@ Function ForceRefTo(ObjectReference akNewRef) ; override
             DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
             _hasDummyWeapon = npc.GetItemCount(npcTracker.DummyWeapon) > 0
             _ignoreNotEquippedInNextFixup = false
+            _animationIsApplied = false
             _fixupLock = false
             RegisterForFixup()
         EndIf
@@ -130,6 +134,7 @@ EndEvent
 
 Event OnUnload()
     _loaded = false
+    _animationIsApplied = false ; unloading breaks animations
     RegisterForSingleUpdate(8.0) ; the update will call Clear() if _loaded is false
 EndEvent
 
@@ -150,9 +155,16 @@ Function HandleItemAddedRemoved(Form akBaseItem)
     DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
     If (npc != None && akBaseItem != npcTracker.DummyWeapon) ; we take care to add/remove DummyWeapon only in situations where it cannot break devices
         Armor maybeArmor = akBaseItem as Armor
-        If (maybeArmor != None && maybeArmor.HasKeyword(npcTracker.DDLibs.zad_Lockable))
-            ; a device has been added or removed, we need to rescan for devices
-            _renderedDevicesFlags = -1
+        If (maybeArmor != None)
+            zadLibs ddLibs = npcTracker.DDLibs
+            If (maybeArmor.HasKeyword(ddLibs.zad_Lockable))
+                ; a device has been added or removed, we need to rescan for devices
+                _renderedDevicesFlags = -1
+                If (_animationIsApplied && (maybeArmor.HasKeyword(ddLibs.zad_DeviousHeavyBondage) || maybeArmor.HasKeyword(ddLibs.zad_DeviousPonyGear) || maybeArmor.HasKeyword(ddLibs.zad_DeviousHobbleSkirt) && !maybeArmor.HasKeyword(ddLibs.zad_DeviousHobbleSkirtRelaxed)))
+                    ; the added or removed device modifies animations, we need to reset animations
+                    _animationIsApplied = false
+                EndIf
+            EndIf
         EndIf
         If (_loaded)
             RegisterForFixup()
@@ -211,20 +223,16 @@ EndFunction
 
 
 Event OnUpdate()
-Debug.StartStackProfiling();TODO
     Actor npc = GetReference() as Actor
     If (npc == None)
         Return ; race condition
-Debug.StopStackProfiling();TODO        
     EndIf
     If (_fixupLock)
         RegisterForFixup() ; already running, postpone
-Debug.StopStackProfiling();TODO        
         Return
     EndIf
     If (!_loaded)
         Clear()
-Debug.StopStackProfiling();TODO        
         Return
     EndIf
     _fixupLock = true
@@ -243,7 +251,6 @@ Debug.StopStackProfiling();TODO
             npc.RemoveFromFaction(npcTracker.DeviceTargets)
             _fixupLock = false
             Clear()
-Debug.StopStackProfiling();TODO        
             Return
         Else
             npc.SetFactionRank(npcTracker.DeviceTargets, 0)
@@ -276,21 +283,36 @@ Debug.StopStackProfiling();TODO
         _ignoreNotEquippedInNextFixup = true
         RegisterForFixup()
         _fixupLock = false
-Debug.StopStackProfiling();TODO        
         Return
     EndIf
         
     ; step three: handle weapons and animation effects
     If (useUnarmedCombatPackage) ; implies hasAnimation
-        UnequipWeapons(npc)
-        ddLibs.BoundCombat.EvaluateAA(npc) ; will have the same effect as SheatheWeaponHack if weapons are drawn
-        npc.SheatheWeapon() ; may do nothing
+        ; modifying animations will have the same effect as SheatheWeaponHack if weapons are drawn
+        If (_animationIsApplied)
+            ; only re-start idle as animations are already set
+            Debug.SendAnimationEvent(npc, "IdleForceDefaultState")
+        else
+            ; use the full procuedure
+            UnequipWeapons(npc)
+            ddLibs.BoundCombat.EvaluateAA(npc) ; very expensive call
+            npc.SheatheWeapon() ; may do nothing
+            _animationIsApplied = true
+        EndIf
         RegisterForAnimationEvent(npc, "BeginWeaponDraw") ; register even if we think that we are already registered
     Else
         Bool restoreWeaponAccess = false
         If (hasAnimation)
+            ; modifying animations will have the same effect as SheatheWeaponHack if weapons are drawn
             restoreWeaponAccess = npc.IsWeaponDrawn()
-            ddLibs.BoundCombat.EvaluateAA(npc) ; will have the same effect as SheatheWeaponHack if weapons are drawn
+            If (_animationIsApplied)
+                ; only re-start idle as animations are already set
+                Debug.SendAnimationEvent(npc, "IdleForceDefaultState") ; only re-start idle as animations are already set
+            Else
+                ; use the full procuedure
+                ddLibs.BoundCombat.EvaluateAA(npc) ; very expensive call
+                _animationIsApplied = true
+            EndIf
         EndIf
         If (_useUnarmedCombatPackage)
             restoreWeaponAccess = true
@@ -326,7 +348,6 @@ Debug.StopStackProfiling();TODO
     
     ; done
     _fixupLock = false
-Debug.StopStackProfiling();TODO
 EndEvent
 
 

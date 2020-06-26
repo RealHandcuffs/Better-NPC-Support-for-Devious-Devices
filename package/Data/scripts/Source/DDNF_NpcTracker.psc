@@ -35,16 +35,19 @@ EndFunction
 
 
 Function HandleGameLoaded(Bool upgrade)
+    ; refresh alias array if doing upgrade, number of aliases may have changed
     If (upgrade)
         Alias[] emptyArray
-        _cachedAliases = emptyArray ; the number of aliases might have changed
+        _cachedAliases = emptyArray
     EndIf
+    ; notify all alias scripts
     Int index = 0
     Alias[] aliases = GetAliases()
     While (index < aliases.Length)
         (aliases[index] as DDNF_NpcTracker_NPC).HandleGameLoaded(upgrade)
         index += 1
     EndWhile
+    ; refresh options (might notify all alias scripts again
     ValidateOptions()
 EndFunction
 

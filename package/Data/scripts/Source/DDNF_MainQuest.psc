@@ -36,13 +36,17 @@ EndFunction
 
 
 Function HandleGameLoaded(Bool upgrade)
+    UnregisterForUpdate()
+    ; refresh event registrations
+    RegisterForModEvent("DDI_DeviceEquipped", "OnDDI_DeviceEquipped")
+    ; notify npc tracker quest
+    NpcTracker.HandleGameLoaded(upgrade)
+    ; refresh alias array if doing upgrade, aliases may have been added or removed
     If (upgrade)
         Alias[] emptyArray
-        _cachedScannerAliases = emptyArray ; the number of aliases might have changed
+        _cachedScannerAliases = emptyArray
     EndIf
-    ; refresh all event registrations
-    RegisterForModEvent("DDI_DeviceEquipped", "OnDDI_DeviceEquipped") 
-    ; scan "soon" after loading game
+    ; queue scan "soon"
     RegisterForSingleUpdate(1.0)
 EndFunction
 
@@ -61,7 +65,6 @@ EndEvent
 
 
 Event OnUpdate()
-Debug.StartStackProfiling();TODO
     ; update event, scan for and fix all nearby NPCs and then queue another update event
     ; stopping the NPC tracker will temporarily disable this mod
     ; starting it again will re-enable this mod
@@ -71,8 +74,7 @@ Debug.StartStackProfiling();TODO
         If (!NpcScanner.IsStopped())
             ; not really expected but might happen when loading screen is triggered while scan is ongoing
             ; bail out
-            RegisterForSingleUpdate(1.0) ; will probably get overwritten by code at the end of this function
-Debug.StopStackProfiling();TODO
+            RegisterForSingleUpdate(SecondsBetweenScans) ; will probably get overwritten by code at the end of this function
             Return
         EndIf
         NpcScanner.Start() ; latent function, will wait and return after the quest has finished starting
@@ -102,5 +104,4 @@ Debug.StopStackProfiling();TODO
     Else
         RegisterForSingleUpdate(SecondsBetweenScans)
     EndIf
-Debug.StopStackProfiling();TODO
 EndEvent

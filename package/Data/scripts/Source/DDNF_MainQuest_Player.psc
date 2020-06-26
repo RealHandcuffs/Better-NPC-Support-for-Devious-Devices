@@ -5,22 +5,19 @@ Scriptname DDNF_MainQuest_Player extends ReferenceAlias
 
 Formlist Property EmptyFormlist Auto
 
-String Property Version = "0.1 beta 4 pre" AutoReadOnly
+String Property Version = "0.1 beta 4" AutoReadOnly
 String _lastVersion
 
 
 Event OnInit()
-Debug.StartStackProfiling();TODO
     Debug.Notification("[BNSfDD] Installing: " + Version)
     HandleGameLoaded(true)
     _lastVersion = Version    
     Debug.Notification("[BNSfDD] Done.")
-Debug.StopStackProfiling();TODO
 EndEvent
 
 
 Event OnPlayerLoadGame()
-Debug.StartStackProfiling();TODO
     DDNF_MainQuest mainQuest = GetOwningQuest() as DDNF_MainQuest    
     If (_lastVersion == Version)
         HandleGameLoaded(false)
@@ -30,21 +27,18 @@ Debug.StartStackProfiling();TODO
         _lastVersion = Version
         Debug.Notification("[BNSfDD] Done.")
     EndIf
-Debug.StopStackProfiling();TODO
 EndEvent
 
 
 Function HandleGameLoaded(Bool upgrade)
-    ; refresh all event registrations
+    ; refresh event registrations
     UnregisterForAllMenus()
     RegisterForMenu("ContainerMenu")
     RegisterForMenu("Journal Menu")
     RemoveAllInventoryEventFilters()
     AddInventoryEventFilter(EmptyFormlist)
-    ; notify main quest and npc tracker quest
+    ; notify main quest
     DDNF_MainQuest mainQuest = GetOwningQuest() as DDNF_MainQuest
-    DDNF_NPCTracker npcTracker = mainQuest.NpcTracker
-    npcTracker.HandleGameLoaded(upgrade)
     MainQuest.HandleGameLoaded(upgrade)
 EndFunction
 
