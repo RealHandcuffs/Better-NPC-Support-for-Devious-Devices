@@ -74,7 +74,7 @@ then
   echo "  Version: $VERSION"
 fi
 mv build/package/FOMod/info.xml build/package/FOMod/info.xml.old
-envsubst < build/package/FOMod/info.xml.old > build/package/FOMod/info.xml
+VERSION=$VERSION envsubst < build/package/FOMod/info.xml.old > build/package/FOMod/info.xml
 rm build/package/FOMod/info.xml.old
 
 # create archive of build/package folder
