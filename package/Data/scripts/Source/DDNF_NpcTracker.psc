@@ -16,6 +16,61 @@ zadLibs Property DDLibs Auto
 
 Bool Property UseBoundCombat Auto
 
+Alias[] _cachedAliases ; performance optimization
+
+
+Alias[] Function GetAliases()
+    If (_cachedAliases.Length == 0)
+        Int count = GetNumAliases()
+        Alias[] aliases = Utility.CreateAliasArray(count)
+        Int index = 0
+        While (index < count)
+            aliases[index] = GetNthAlias(index)
+            index += 1
+        EndWhile
+        _cachedAliases = aliases
+    EndIf
+    Return _cachedAliases
+EndFunction
+
+
+Function HandleGameLoaded(Bool upgrade)
+    ; refresh alias array if doing upgrade, number of aliases may have changed
+    If (upgrade)
+        Alias[] emptyArray
+        _cachedAliases = emptyArray
+    EndIf
+    ; notify all alias scripts
+    Int index = 0
+    Alias[] aliases = GetAliases()
+    While (index < aliases.Length)
+        (aliases[index] as DDNF_NpcTracker_NPC).HandleGameLoaded(upgrade)
+        index += 1
+    EndWhile
+    ; refresh options (might notify all alias scripts again
+    ValidateOptions()
+EndFunction
+
+
+Function HandleJournalMenuClosed()
+    ValidateOptions()
+EndFunction
+
+
+Function ValidateOptions()
+    Bool newUseBoundCombat = ddLibs.Config.UseBoundCombat
+    If (useBoundCombat != newUseBoundCombat)
+        UseBoundCombat = newUseBoundCombat
+        Int index = 0
+        Alias[] aliases = GetAliases()
+        While (index < aliases.Length)
+            (aliases[index] as DDNF_NpcTracker_NPC).HandleOptionsChanged(useBoundCombat)
+            index += 1
+        EndWhile
+    EndIf
+EndFunction
+
+
 ;
 ; Add a NPC to the tracked NPCs.
 ; Caller should check that the NPC is alive and loaded; failing that will not
@@ -28,10 +83,13 @@ Bool Function Add(Actor npc)
         Return true
     EndIf
     Int index = 0
-    Int count = GetNumAliases()
-    While (index < count)
-        ReferenceAlias refAlias = GetNthAlias(index) as ReferenceAlias
-        If (npc.HasKeyword(TrackingKeyword) || refAlias.ForceRefIfEmpty(npc))
+    Alias[] aliases = GetAliases()
+    If (npc.HasKeyword(TrackingKeyword)) ; api misuse, too - check for this as late as possible, i.e. directly before the loop
+        Return true
+    EndIf
+    While (index < aliases.Length)
+        ReferenceAlias refAlias = aliases[index] as ReferenceAlias
+        If (refAlias.ForceRefIfEmpty(npc))
             Return true
         EndIf
         index += 1
@@ -39,6 +97,20 @@ Bool Function Add(Actor npc)
     ; unable to track, all reference aliases were full :(
     ; the mod will probably misbehave but hopefully not in too bad a way
     Return false
+EndFunction
+
+
+;
+; Remove all tracked NPCs.
+;
+Function Clear()
+    Int index = 0
+    Alias[] aliases = GetAliases()
+    While (index < aliases.Length)
+        ReferenceAlias refAlias = aliases[index] as ReferenceAlias
+        refAlias.Clear()
+        index += 1
+    EndWhile
 EndFunction
 
 
@@ -59,35 +131,5 @@ Function HandleDeviceEquipped(Actor akActor, Armor inventoryDevice, Bool checkFo
             EndIf
         EndIf
         Add(akActor)
-    EndIf
-EndFunction
-
-
-Function HandleGameLoaded()
-    Int index = 0
-    Int count = GetNumAliases()
-    While (index < count)
-        (GetNthAlias(index) as DDNF_NpcTracker_NPC).HandleGameLoaded()
-        index += 1
-    EndWhile
-    ValidateOptions()
-EndFunction
-
-
-Function HandleJournalMenuClosed()
-    ValidateOptions()
-EndFunction
-
-
-Function ValidateOptions()
-    Bool newUseBoundCombat = ddLibs.Config.UseBoundCombat
-    If (useBoundCombat != newUseBoundCombat)
-        UseBoundCombat = newUseBoundCombat
-        Int index = 0
-        Int count = GetNumAliases()
-        While (index < count)
-            (GetNthAlias(index) as DDNF_NpcTracker_NPC).HandleOptionsChanged(useBoundCombat)
-            index += 1
-        EndWhile
     EndIf
 EndFunction

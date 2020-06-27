@@ -5,31 +5,41 @@ Scriptname DDNF_MainQuest_Player extends ReferenceAlias
 
 Formlist Property EmptyFormlist Auto
 
+String Property Version = "0.1 beta 4" AutoReadOnly
+String _lastVersion
+
 
 Event OnInit()
-    HandleGameLoaded()
+    Debug.Notification("[BNSfDD] Installing: " + Version)
+    HandleGameLoaded(true)
+    _lastVersion = Version    
+    Debug.Notification("[BNSfDD] Done.")
 EndEvent
 
 
 Event OnPlayerLoadGame()
-    HandleGameLoaded()
+    DDNF_MainQuest mainQuest = GetOwningQuest() as DDNF_MainQuest    
+    If (_lastVersion == Version)
+        HandleGameLoaded(false)
+    Else
+        Debug.Notification("[BNSfDD] Upgrading to: " + Version)
+        HandleGameLoaded(true)
+        _lastVersion = Version
+        Debug.Notification("[BNSfDD] Done.")
+    EndIf
 EndEvent
 
 
-Function HandleGameLoaded()
-    ; refresh all event registrations
+Function HandleGameLoaded(Bool upgrade)
+    ; refresh event registrations
     UnregisterForAllMenus()
     RegisterForMenu("ContainerMenu")
     RegisterForMenu("Journal Menu")
     RemoveAllInventoryEventFilters()
     AddInventoryEventFilter(EmptyFormlist)
-    ; tell main quest and npc tracker quest to refresh, too
+    ; notify main quest
     DDNF_MainQuest mainQuest = GetOwningQuest() as DDNF_MainQuest
-    DDNF_NPCTracker npcTracker = mainQuest.NpcTracker
-    If (npcTracker.IsRunning()) ; stopping npc tracker will disable this mod
-        npcTracker.HandleGameLoaded()
-    EndIf
-    MainQuest.HandleGameLoaded()
+    MainQuest.HandleGameLoaded(upgrade)
 EndFunction
 
 
@@ -57,9 +67,7 @@ Event OnMenuClose(String menuName)
         AddInventoryEventFilter(EmptyFormlist)
     ElseIf (menuName == "Journal Menu")
         DDNF_NPCTracker npcTracker = (GetOwningQuest() as DDNF_MainQuest).NpcTracker
-        If (npcTracker.IsRunning())
-            npcTracker.HandleJournalMenuClosed()
-        EndIf
+        npcTracker.HandleJournalMenuClosed()
     EndIf
 EndEvent
 
@@ -72,21 +80,19 @@ Event OnItemRemoved(Form akBaseItem, int aiItemCount, ObjectReference akItemRefe
     EndIf
     Actor akActor = akDestContainer as Actor
     Armor maybeInventoryDevice = akBaseItem as Armor
-    If (akActor != None && !akActor.IsDead() && maybeInventoryDevice != None)
-        DDNF_NPCTracker npcTracker = (GetOwningQuest() as DDNF_MainQuest).NpcTracker
-        If (npcTracker.IsRunning() && maybeInventoryDevice.HasKeyword(npcTracker.DDLibs.zad_InventoryDevice))
-            ; player trying to equip device on NPC, wait until container menu is closed
-            Utility.Wait(0.5)
-            If (npcTracker.IsRunning() && !akActor.IsDead() && akActor.GetItemCount(maybeInventoryDevice) > 0)
-                ; in theory this is completely unnecessary as Devious Devices should detect the item being added in OnContainerChange(),
-                ; equip the device on the NPC, and call OnDDI_DeviceEquipped
-                ; in practice there are multiple possible complications:
-                ; - OnDDI_DeviceEquipped is not working in some versions
-                ; - the OnContainerChange event may not get fired
-                ;   this seems to be a "random" engine bug and can be fixed by dropping the object
-                ;   it seems to happen more often (?) if the player has multiple copies of the item, and/or if the item has recently been acquired
-                npcTracker.HandleDeviceEquipped(akActor, maybeInventoryDevice, true)
-            EndIf
+    DDNF_NPCTracker npcTracker = (GetOwningQuest() as DDNF_MainQuest).NpcTracker
+    If (akActor != None && maybeInventoryDevice != None && maybeInventoryDevice.HasKeyword(npcTracker.DDLibs.zad_InventoryDevice) && !akActor.IsDead())
+        ; player trying to equip device on NPC, wait until container menu is closed and then some
+        Utility.Wait(0.5)
+        If (npcTracker.IsRunning() && akActor.GetItemCount(maybeInventoryDevice) > 0 && !akActor.IsDead())
+            ; in theory this is completely unnecessary as Devious Devices should detect the item being added in OnContainerChange(),
+            ; equip the device on the NPC, and call OnDDI_DeviceEquipped
+            ; in practice there are multiple possible complications:
+            ; - OnDDI_DeviceEquipped is not working in some versions
+            ; - the OnContainerChange event may not get fired
+            ;   this seems to be a "random" engine bug and can be fixed by dropping the object
+            ;   it seems to happen more often (?) if the player has multiple copies of the item, and/or if the item has recently been acquired
+            npcTracker.HandleDeviceEquipped(akActor, maybeInventoryDevice, true)
         EndIf
     EndIf
 EndEvent
