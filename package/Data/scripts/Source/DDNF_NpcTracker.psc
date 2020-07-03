@@ -15,8 +15,10 @@ Weapon Property DummyWeapon Auto
 zadLibs Property DDLibs Auto
 
 Bool Property UseBoundCombat Auto
+Bool Property EnablePapyrusLogging Auto Conditional
 
 Alias[] _cachedAliases ; performance optimization
+Int _attemptedFixupsInPeriod
 
 
 Alias[] Function GetAliases()
@@ -35,8 +37,11 @@ EndFunction
 
 
 Function HandleGameLoaded(Bool upgrade)
-    ; refresh alias array if doing upgrade, number of aliases may have changed
     If (upgrade)
+        ; stop further fixups until the upgrade is done
+        UnregisterForUpdate()
+        _attemptedFixupsInPeriod = 9999
+        ; refresh alias array if doing upgrade, number of aliases may have changed
         Alias[] emptyArray
         _cachedAliases = emptyArray
     EndIf
@@ -49,6 +54,10 @@ Function HandleGameLoaded(Bool upgrade)
     EndWhile
     ; refresh options (might notify all alias scripts again
     ValidateOptions()
+    ; done
+    If (upgrade)
+        _attemptedFixupsInPeriod = 0
+    EndIf
 EndFunction
 
 
@@ -64,7 +73,7 @@ Function ValidateOptions()
         Int index = 0
         Alias[] aliases = GetAliases()
         While (index < aliases.Length)
-            (aliases[index] as DDNF_NpcTracker_NPC).HandleOptionsChanged(useBoundCombat)
+            (aliases[index] as DDNF_NpcTracker_NPC).HandleOptionsChanged(newUseBoundCombat)
             index += 1
         EndWhile
     EndIf
@@ -115,21 +124,50 @@ EndFunction
 
 
 Function HandleDeviceEquipped(Actor akActor, Armor inventoryDevice, Bool checkForNotEquippedBug)
-    If (akActor != Player && !akActor.IsDead())
-        If (checkForNotEquippedBug)
-            Armor renderedDevice = DDLibs.GetRenderedDevice(inventoryDevice)
-            If (renderedDevice != None && akActor.GetItemCount(renderedDevice) == 0)
-                ; the item is not actually equipped (bug), try to equip it
-                ObjectReference droppedItem = akActor.DropObject(inventoryDevice)
-                Utility.Wait(0.1)
-                akActor.AddItem(droppedItem)
-                zadEquipScript deviousDevice = droppedItem as zadEquipScript
-                If (deviousDevice != None) ; expected to always be true
-                    deviousDevice.EquipDevice(akActor)
-                    Utility.Wait(0.5)
-                EndIf
+    If (Add(akActor) && checkForNotEquippedBug)
+        ; workaround for the OnContainerChanged event not firing, causing the device to not getting equipped
+        ; this seems to be a "random" engine bug and can be fixed by dropping the object
+        ; it seems to happen more often (?) if the player has multiple copies of the item, and/or if the item has recently been acquired
+        Utility.Wait(2.0)
+        ObjectReference tempRef = Player.PlaceAtMe(inventoryDevice, abInitiallyDisabled = true)
+        zadEquipScript tempDevice = tempRef as zadEquipScript
+        If (tempDevice != None)
+            Armor renderedDevice = tempDevice.deviceRendered
+            Keyword deviceKeyword = tempDevice.zad_DeviousDevice
+            If (renderedDevice != None && deviceKeyword != None && akActor.GetItemCount(renderedDevice) == 0)
+                ; it's not equipped, equip it
+                DDLibs.EquipDevice(akActor, inventoryDevice, renderedDevice, deviceKeyword)
             EndIf
         EndIf
-        Add(akActor)
+        tempDevice.Delete()
     EndIf
 EndFunction
+
+
+;
+; This function is called before doing a fixup to an NPC.
+; It will return a value > 0 if too many fixups are running already, meaning that the mod needs to wait for
+; the returned number of seconds before attempting the fixup again.
+;
+Float Function NeedToSlowDownBeforeFixup(Actor npc)
+    ; allow up to three fixups to start in a period of three seconds
+    If (_attemptedFixupsInPeriod == 9999)
+        Return 3.0 ; onging update
+    EndIf
+    _attemptedFixupsInPeriod += 1
+    If (_attemptedFixupsInPeriod <= 3)
+        If (_attemptedFixupsInPeriod == 1)
+            RegisterForSingleUpdate(3.0) ; a new three-second period is starting now
+        EndIf
+        Return 0.0
+    EndIf
+    If (npc.IsPlayerTeammate())
+        Return 1.0 ; retry with high priority for player teammates
+    EndIf
+    Return _attemptedFixupsInPeriod as Float ; backoff, wait longer if more fixups have been tried
+EndFunction
+
+
+Event OnUpdate()
+    _attemptedFixupsInPeriod = 0 ; reset to zero
+EndEvent
