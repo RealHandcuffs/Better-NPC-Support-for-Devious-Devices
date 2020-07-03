@@ -5,26 +5,41 @@ Scriptname DDNF_MainQuest_Player extends ReferenceAlias
 
 Formlist Property EmptyFormlist Auto
 
-String Property Version = "0.1 beta 4" AutoReadOnly
+String Property Version = "0.1 beta 5" AutoReadOnly
 String _lastVersion
 
 
 Event OnInit()
     Debug.Notification("[BNSfDD] Installing: " + Version)
+    DDNF_MainQuest mainQuest = GetOwningQuest() as DDNF_MainQuest    
+    Bool enablePapyrusLogging = mainQuest.NpcTracker.EnablePapyrusLogging
+    If (enablePapyrusLogging)
+        Debug.Trace("[DDNF] Installing version " + Version + ".")
+    EndIf
     HandleGameLoaded(true)
     _lastVersion = Version    
+    If (enablePapyrusLogging)
+        Debug.Trace("[DDNF] Installation finished.")
+    EndIf
     Debug.Notification("[BNSfDD] Done.")
 EndEvent
 
 
 Event OnPlayerLoadGame()
     DDNF_MainQuest mainQuest = GetOwningQuest() as DDNF_MainQuest    
+    Bool enablePapyrusLogging = mainQuest.NpcTracker.EnablePapyrusLogging
     If (_lastVersion == Version)
         HandleGameLoaded(false)
     Else
         Debug.Notification("[BNSfDD] Upgrading to: " + Version)
+        If (enablePapyrusLogging)
+            Debug.Trace("[DDNF] Upgrading from version " + _lastVersion + " to version " + Version + ".")
+        EndIf
         HandleGameLoaded(true)
         _lastVersion = Version
+        If (enablePapyrusLogging)
+            Debug.Trace("[DDNF] Upgrade finished.")
+        EndIf
         Debug.Notification("[BNSfDD] Done.")
     EndIf
 EndEvent
@@ -82,16 +97,9 @@ Event OnItemRemoved(Form akBaseItem, int aiItemCount, ObjectReference akItemRefe
     Armor maybeInventoryDevice = akBaseItem as Armor
     DDNF_NPCTracker npcTracker = (GetOwningQuest() as DDNF_MainQuest).NpcTracker
     If (akActor != None && maybeInventoryDevice != None && maybeInventoryDevice.HasKeyword(npcTracker.DDLibs.zad_InventoryDevice) && !akActor.IsDead())
-        ; player trying to equip device on NPC, wait until container menu is closed and then some
-        Utility.Wait(0.5)
+        ; player trying to equip device on NPC, wait until container menu is closed
+        Utility.Wait(0.1)
         If (npcTracker.IsRunning() && akActor.GetItemCount(maybeInventoryDevice) > 0 && !akActor.IsDead())
-            ; in theory this is completely unnecessary as Devious Devices should detect the item being added in OnContainerChange(),
-            ; equip the device on the NPC, and call OnDDI_DeviceEquipped
-            ; in practice there are multiple possible complications:
-            ; - OnDDI_DeviceEquipped is not working in some versions
-            ; - the OnContainerChange event may not get fired
-            ;   this seems to be a "random" engine bug and can be fixed by dropping the object
-            ;   it seems to happen more often (?) if the player has multiple copies of the item, and/or if the item has recently been acquired
             npcTracker.HandleDeviceEquipped(akActor, maybeInventoryDevice, true)
         EndIf
     EndIf

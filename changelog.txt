@@ -18,4 +18,12 @@ Version 0.1 Beta 4
 - Optimize all papyrus scripts after using the built-in profiler.
 - Remember devices of NPCs as long as they are being tracked to prevent repeaded inventory scans.
 - Try to be smarter about when to re-apply animations of a NPC (zadBoundCombatScript.EvaluateAA) as doing so is expensive and slow.
-- Allow pausing the mod by using "stopquest DDNF_NpcTracker". Use "startquest DDNF_NpcTracker" to start the mod again.
+- Allow pausing the mod using "stopquest DDNF_NpcTracker". Use "startquest DDNF_NpcTracker" to start the mod again.
+
+Version 0.1 Beta 5
+- Detect concurrent modifications to a NPC while the mod is fixing up devices of the NPC and abort the fixup (fail fast).
+- Reduce number of NPCs that can be found by the scanner quest from 8 to 4 (the mod is still able to handle more, it will just take longer to find them).
+- Only allow fixing devices of a particular NPC every 5 seconds real time (slow down). This includes situations where the fixup was aborted.
+- Only allow fixing devices of 3 NPCs over a period of 3 seconds (slow down).
+- Various other small optimizations.
+- Add very minimal logging. It is off by default and can be enabled using "setpqv DDNF_NpcTracker EnablePapyrusLogging true".

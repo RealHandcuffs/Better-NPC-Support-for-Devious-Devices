@@ -37,8 +37,6 @@ EndFunction
 
 Function HandleGameLoaded(Bool upgrade)
     UnregisterForUpdate()
-    ; refresh event registrations
-    RegisterForModEvent("DDI_DeviceEquipped", "OnDDI_DeviceEquipped")
     ; notify npc tracker quest
     NpcTracker.HandleGameLoaded(upgrade)
     ; refresh alias array if doing upgrade, aliases may have been added or removed
@@ -52,16 +50,9 @@ EndFunction
 
 
 Function HandleLoadingScreen()
-    ; scan for nearby NPCs directly after the loading screen instead of waiting for the queued event
-    RegisterForSingleUpdate(0.1)
+    ; scan for nearby NPCs soon after the loading screen instead of waiting for the queued event
+    RegisterForSingleUpdate(1.0)
 EndFunction
-
-
-Event OnDDI_DeviceEquipped(Form inventoryDevice, Form deviceKeyword, Form akActor)
-    If (NpcTracker.IsRunning() && akActor != NpcTracker.Player)
-        NpcTracker.HandleDeviceEquipped(akActor as Actor, inventoryDevice as Armor, false)
-    EndIf
-EndEvent
 
 
 Event OnUpdate()
