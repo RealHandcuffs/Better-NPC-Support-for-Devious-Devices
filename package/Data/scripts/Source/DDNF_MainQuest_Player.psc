@@ -5,7 +5,7 @@ Scriptname DDNF_MainQuest_Player extends ReferenceAlias
 
 Formlist Property EmptyFormlist Auto
 
-String Property Version = "0.1 beta 5" AutoReadOnly
+String Property Version = "0.1 beta 6 EXPERIMENTAL" AutoReadOnly
 String _lastVersion
 
 

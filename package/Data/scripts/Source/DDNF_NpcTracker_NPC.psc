@@ -418,6 +418,7 @@ Event OnUpdate()
     EndIf
     If (EquipAllDevices(npc, _renderedDevices) > 0) ; even do this if current state has changed during UnequipAllDevices!
         Utility.Wait(0.1) ; give the game time to fully register the equips
+        npc.UpdateWeight(0) ; workaround to force the game to correctly evaluate armor addon slots
     EndIf
     String currentState = GetState()
     If (_ignoreNotEquippedInNextFixup)
