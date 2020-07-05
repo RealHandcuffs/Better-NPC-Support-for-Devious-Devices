@@ -141,7 +141,7 @@ EndEvent
 
 
 Event OnLoad()
-    RegisterForFixup()
+    RegisterForFixup(0.25) ; high priority
 EndEvent
 
 
@@ -172,8 +172,10 @@ Function HandleItemAddedRemoved(Form akBaseItem)
             If (maybeArmor.HasKeyword(ddLibs.zad_Lockable))
                 ; a device has been added or removed, we need to rescan for devices
                 _renderedDevicesFlags = -1
-                ; this might also change the animation
-                _animationIsApplied = false
+                If (_animationIsApplied && maybeArmor.GetEnchantment() != None)
+                    ; this device might also change the animation
+                    _animationIsApplied = false
+                EndIf
             EndIf
         EndIf
         RegisterForFixup()
@@ -263,13 +265,15 @@ Function HandleItemAddedRemoved(Form akBaseItem)
         If (maybeArmor.HasKeyword(ddLibs.zad_Lockable))
             ; a device has been added or removed, we need to rescan for devices
             _renderedDevicesFlags = -1
-            ; this might also change the animation
-            _animationIsApplied = false
+            If (_animationIsApplied && maybeArmor.GetEnchantment() != None)
+                ; this device might also change the animation
+                _animationIsApplied = false
+            EndIf
             ; switch state
-            String currentState = GetState()
-            If (currentState == "AliasOccupiedWaitingForQuickFixup")
-                GotoState("AliasOccupiedWaitingForFullFixup")
-            ElseIf (currentState != "AliasOccupiedWaitingForFullFixup")
+            String currentState = GetState() ; might have changed since start of call
+			If (!_animationIsApplied && currentState == "AliasOccupiedWaitingForQuickFixup")
+                GotoState("AliasOccupiedWaitingForFullFixup") ; like RegisterForFixup but without changing the registered update
+			ElseIf (currentState == "AliasOccupied")
                 RegisterForFixup()
             EndIf
         EndIf
@@ -362,7 +366,7 @@ Event OnUpdate()
             _renderedDevices = new Armor[32] 
         EndIf
         renderedDevicesFlags = FindAndAnalyzeRenderedDevices(ddLibs, npcTracker.UseBoundCombat, npc, _renderedDevices)
-        If (currentState != "AliasOccupied")
+        If (GetState() != "AliasOccupied")
             ; something has triggered a new fixup while we were finding and analysing devices
             If (_renderedDevicesFlags != 0 || !npc.Is3DLoaded())
                 ; devices have been added/removed or npc has been unloaded, abort
@@ -399,9 +403,10 @@ Event OnUpdate()
             npc.SetFactionRank(npcTracker.DeviceTargets, 0)
         EndIf
     EndIf
-    Bool useUnarmedCombatPackage = Math.LogicalAnd(renderedDevicesFlags, 1)
-    Bool helpless = Math.LogicalAnd(renderedDevicesFlags, 2)
-    Bool hasAnimation = Math.LogicalAnd(renderedDevicesFlags, 4)
+    Int devicesWithMagicalEffectCount = Math.LogicalAnd(renderedDevicesFlags, 255)
+    Bool useUnarmedCombatPackage = Math.LogicalAnd(renderedDevicesFlags, 256)
+    Bool helpless = Math.LogicalAnd(renderedDevicesFlags, 512)
+    Bool hasAnimation = Math.LogicalAnd(renderedDevicesFlags, 1024)
     ; also add dummy weapon if necessary
     ; we need to do this now, before actually fixing devices
     If (useUnarmedCombatPackage && !helpless || !useUnarmedCombatPackage && (hasAnimation || _useUnarmedCombatPackage))
@@ -413,20 +418,20 @@ Event OnUpdate()
     
     ; step two: unequip and reequip all rendered devices to restart the effects
     ; from this point on we need to abort and restart the fixup if something changes
-    If (UnequipAllDevices(npc, _renderedDevices) > 0)
-        Utility.Wait(0.1) ; give the game time to fully register the unequips
-    EndIf
-    If (EquipAllDevices(npc, _renderedDevices) > 0) ; even do this if current state has changed during UnequipAllDevices!
-        Utility.Wait(0.1) ; give the game time to fully register the equips
+    Int reequipBitmap = UnequipDevices(npc, _renderedDevices, devicesWithMagicalEffectCount)
+    If (reequipBitmap != 0)
+        Utility.Wait(0.017) ; give the game time to fully register the unequips
+        ReequipDevices(npc, _renderedDevices, reequipBitmap) ; even do this if current state has changed during UnequipDevices!
+        Utility.Wait(0.017) ; give the game time to fully register the equips
         npc.UpdateWeight(0) ; workaround to force the game to correctly evaluate armor addon slots
     EndIf
     String currentState = GetState()
     If (_ignoreNotEquippedInNextFixup)
         _ignoreNotEquippedInNextFixup = false
     ElseIf (currentState == "AliasOccupied")
-        Bool allDevicesEquipped = CheckAllDevicesEquipped(npc, _renderedDevices)
+        Bool devicesEquipped = reequipBitmap == 0 || CheckDevicesEquipped(npc, _renderedDevices, reequipBitmap)
         currentState = GetState()
-        If (!allDevicesEquipped && currentState == "AliasOccupied")
+        If (!devicesEquipped && currentState == "AliasOccupied")
             ; some devices are still not equipped, it is not clear why this happens sometimes
             ; reschedule fixup but ignore the issue if it occurs again
             _ignoreNotEquippedInNextFixup = true
@@ -527,10 +532,12 @@ EndEvent
 
 ;
 ; Fills the renderedDevices array with the rendered devices of the actor, starting from index 0.
-; Returns an int composed of the following flags:
-; 1 - use unarmed combat package
-; 2 - helpless
-; 4 - has animation
+; Devices with magical effects will be added to the array before devices without magical effects.
+; Returns an int composed of the following numbers and flags:
+; (0 - 255) - number of devices with effects
+; 256 - flag: use unarmed combat package
+; 512 - flag: helpless
+; 1024 - flag: has animation
 ;
 Int Function FindAndAnalyzeRenderedDevices(zadLibs ddLibs, Bool useBoundCombat, Actor npc, Armor[] renderedDevices) Global
     Keyword zadLockable = ddLibs.zad_Lockable
@@ -540,65 +547,88 @@ Int Function FindAndAnalyzeRenderedDevices(zadLibs ddLibs, Bool useBoundCombat, 
     Keyword zadDeviousPonyGear = ddLibs.zad_DeviousPonyGear
     Keyword zadDeviousHobbleSkirt = ddLibs.zad_DeviousHobbleSkirt
     Keyword zadDeviousHobbleSkirtRelaxed = ddLibs.zad_DeviousHobbleSkirtRelaxed
-    Int renderedDevicesCount = 0
+    Int bottomIndex = 0
+    Int topIndex = renderedDevices.Length
     Bool useUnarmedCombatPackage = false
     Bool hasHeavyBondage = false
     Bool disableKick = !useBoundCombat
     Bool hasAnimation = false
     Int index = 0
     Int count = npc.GetNumItems()
-    While (index < count && renderedDevicesCount < renderedDevices.Length)
+    While (index < count && bottomIndex < topIndex)
         Armor maybeRenderedDevice = npc.GetNthForm(index) as Armor
         If (maybeRenderedDevice != None && maybeRenderedDevice.HasKeyword(zadLockable))
             ; found a rendered device
-            renderedDevices[renderedDevicesCount] = maybeRenderedDevice
-            renderedDevicesCount += 1
-            ; use unarmed combat when wearing heavy bondage and take note of the heavy bondage
-            If (!hasHeavyBondage && maybeRenderedDevice.HasKeyword(zadDeviousHeavyBondage))
-                useUnarmedCombatPackage = true
-                hasHeavyBondage = true
-                hasAnimation = true
-            EndIf
-            ; use unarmed combat when wearing bondage mittens
-            If (!useUnarmedCombatPackage && maybeRenderedDevice.HasKeyword(zadDeviousBondageMittens))
-                useUnarmedCombatPackage = true
-            EndIf
-            ; take note if not able to kick
-            If (!disableKick && maybeRenderedDevice.HasKeyword(zadBoundCombatDisableKick))
-                disableKick = true
-            EndIf
-            ; check for devices other than heavy bondage that require animations
-            If (!hasAnimation && (maybeRenderedDevice.HasKeyword(zadDeviousPonyGear) || maybeRenderedDevice.HasKeyword(zadDeviousHobbleSkirt) && !maybeRenderedDevice.HasKeyword(zadDeviousHobbleSkirtRelaxed)))
-                hasAnimation = true
+            If (maybeRenderedDevice.GetEnchantment() == None)
+                ; put devices without magical effect at top of array
+                topIndex -= 1
+                renderedDevices[topIndex] = maybeRenderedDevice
+                ; assumption: devices without magical effects have none of the special effect DD keywords that we are interested in
+            Else
+                ; put devices with magical effect at bottom of array
+                renderedDevices[bottomIndex] = maybeRenderedDevice
+                bottomIndex += 1
+                ; use unarmed combat when wearing heavy bondage and take note of the heavy bondage
+                If (!hasHeavyBondage && maybeRenderedDevice.HasKeyword(zadDeviousHeavyBondage))
+                    useUnarmedCombatPackage = true
+                    hasHeavyBondage = true
+                    hasAnimation = true
+                EndIf
+                ; use unarmed combat when wearing bondage mittens
+                If (!useUnarmedCombatPackage && maybeRenderedDevice.HasKeyword(zadDeviousBondageMittens))
+                    useUnarmedCombatPackage = true
+                EndIf
+                ; take note if not able to kick
+                If (!disableKick && maybeRenderedDevice.HasKeyword(zadBoundCombatDisableKick))
+                    disableKick = true
+                EndIf
+                ; check for devices other than heavy bondage that require animations
+                If (!hasAnimation && (maybeRenderedDevice.HasKeyword(zadDeviousPonyGear) || maybeRenderedDevice.HasKeyword(zadDeviousHobbleSkirt) && !maybeRenderedDevice.HasKeyword(zadDeviousHobbleSkirtRelaxed)))
+                    hasAnimation = true
+                EndIf
             EndIf
         EndIf
         index += 1
     EndWhile
-    While (renderedDevicesCount < renderedDevices.Length && renderedDevices[renderedDevicesCount] != None)
-        renderedDevices[renderedDevicesCount] = None
-        renderedDevicesCount += 1
-    EndWhile
-    Int flags = 0
+    Int flags = bottomIndex ; number of devices with magical effect
+    If (bottomIndex < topIndex)
+        ; move devices without magical effect to bottom of array, just after the devices with magical effect
+        While (topIndex < renderedDevices.Length)
+            renderedDevices[bottomIndex] = renderedDevices[topIndex]
+            bottomIndex += 1
+            renderedDevices[topIndex] = None
+            topIndex += 1
+        EndWhile
+        While (bottomIndex < renderedDevices.Length && renderedDevices[bottomIndex] != None) ; can only be true when reusing array
+            renderedDevices[bottomIndex] = None
+            bottomIndex += 1
+        EndWhile
+    EndIf
     If (useUnarmedCombatPackage)
-        flags += 1 ; use unarmed combat package
+        flags += 256 ; use unarmed combat package
     EndIf
     If (hasHeavyBondage && disableKick)
-        flags += 2 ; helpless
+        flags += 512 ; helpless
     EndIf
     If (hasAnimation)
-        flags += 4 ; has animation
+        flags += 1024 ; has animation
     EndIf
     Return flags
 EndFunction
 
 
-Int Function UnequipAllDevices(Actor npc, Armor[] renderedDevices) Global
-    Int unequippedCount = 0
+; unequip devices and return a bitmap for the devices to reequip
+Int Function UnequipDevices(Actor npc, Armor[] renderedDevices, Int devicesWithMagicalEffectCount) Global
+    Int currentBit = 1
+    Int bitmapToEquip = 0
     Int index = 0
     While (index < renderedDevices.Length && renderedDevices[index] != None)
         If (npc.IsEquipped(renderedDevices[index]))
-            npc.UnequipItem(renderedDevices[index], abPreventEquip=true)
-            unequippedCount += 1
+            ; unequip devices with magical effects
+            If (index < devicesWithMagicalEffectCount)
+                npc.UnequipItem(renderedDevices[index], abPreventEquip=true)
+                bitmapToEquip = Math.LogicalOr(bitmapToEquip, currentBit)
+            EndIf
         Else
             ; sometimes a conflicting "armor" from another mod is blocking the rendered device
             ; a known mod causing this issue is AllGUD with its various displayed things
@@ -607,31 +637,45 @@ Int Function UnequipAllDevices(Actor npc, Armor[] renderedDevices) Global
             Armor conflictingItem = npc.GetWornForm(slotMask) as Armor
             If (conflictingItem != None)
                 npc.UnequipItem(conflictingItem, abPreventEquip=true)
-                unequippedCount += 1
             EndIf
+            bitmapToEquip = Math.LogicalOr(bitmapToEquip, currentBit)
         EndIf
+        currentBit = Math.LeftShift(currentBit, 1)
         index += 1
     EndWhile
-    Return unequippedCount
+    Return bitmapToEquip
 EndFunction
 
 
-Int Function EquipAllDevices(Actor npc, Armor[] renderedDevices) Global
+; reequip devices according to the bitmap
+Function ReequipDevices(Actor npc, Armor[] renderedDevices, int bitmapToEquip) Global
+    Int currentBit = 1
+    Int equippedBitmap = 0
     Int index = 0
-    While (index < renderedDevices.Length && renderedDevices[index] != None)
-        npc.EquipItem(renderedDevices[index], abPreventRemoval=true)
+    While (equippedBitmap != bitmapToEquip)
+        If (Math.LogicalAnd(bitmapToEquip, currentBit) != 0)
+            npc.EquipItem(renderedDevices[index], abPreventRemoval=true)
+            equippedBitmap = Math.LogicalOr(equippedBitmap, currentBit)
+        EndIf
+        currentBit = Math.LeftShift(currentBit, 1)
         index += 1
     EndWhile
-    Return index
 EndFunction
 
 
-Bool Function CheckAllDevicesEquipped(Actor npc, Armor[] renderedDevices) Global
+; check that devices are equipped according to the bitmap
+Bool Function CheckDevicesEquipped(Actor npc, Armor[] renderedDevices, int bitmapToCheck) Global
+    Int currentBit = 1
+    Int checkedBitmap = 0
     Int index = 0
-    While (index < renderedDevices.Length && renderedDevices[index] != None)
-        If (!npc.IsEquipped(renderedDevices[index]))
-            Return false
+    While (checkedBitmap != bitmapToCheck)
+        If (Math.LogicalAnd(bitmapToCheck, currentBit) != 0)
+            If (!npc.IsEquipped(renderedDevices[index]))
+                Return false
+            EndIf
+            checkedBitmap = Math.LogicalOr(checkedBitmap, currentBit)
         EndIf
+        currentBit = Math.LeftShift(currentBit, 1)
         index += 1
     EndWhile
     Return true
@@ -648,27 +692,31 @@ EndFunction
 
 
 Function UnequipWeapons(Actor npc) Global
-    Weapon rightHandWeapon = npc.GetEquippedWeapon(false)
-    If (rightHandWeapon != None)
+    Int itemType = npc.GetEquippedItemType(1)
+    Bool isOneHandedWeapon = itemType >= 1 && itemType <= 4 || itemType == 8 || itemType == 11
+    Bool isTwoHandedWeapon = itemType >= 5 && itemType <= 7 || itemType == 12
+    Bool isSpell = itemType == 9
+    If (isOneHandedWeapon || isTwoHandedWeapon)
+        Weapon rightHandWeapon = npc.GetEquippedWeapon(false)
         npc.UnequipItemEx(rightHandWeapon, equipSlot=1)
-    Else
+    ElseIf (isSpell)
         Spell rightHandSpell = npc.GetEquippedSpell(1)
-        If (rightHandSpell != None)
-            npc.UnequipSpell(rightHandSpell, 1)
-        EndIf
+        npc.UnequipSpell(rightHandSpell, 1)
     EndIf
-    Armor shield = npc.GetEquippedShield()
-    If (shield != None)
-        npc.UnequipItem(shield)
-    Else
-        Spell leftHandSpell = npc.GetEquippedSpell(0)
-        If (leftHandSpell != None)
-            npc.UnequipSpell(leftHandSpell, 0)
-        Else
+    If (!isTwoHandedWeapon)
+        itemType = npc.GetEquippedItemType(0)
+        isOneHandedWeapon = itemType >= 1 && itemType <= 4 || itemType == 8 || itemType == 11
+        isSpell = itemType == 9
+        Bool isShield = itemType == 10
+        If (isOneHandedWeapon)
             Weapon leftHandWeapon = npc.GetEquippedWeapon(true)
-            If (leftHandWeapon != None)
-                npc.UnequipItemEx(leftHandWeapon, equipSlot=0)
-            EndIf
+            npc.UnequipItemEx(leftHandWeapon, equipSlot=0)
+        ElseIf (isSpell)
+            Spell leftHandSpell = npc.GetEquippedSpell(0)
+            npc.UnequipSpell(leftHandSpell, 0)
+        ElseIf (isShield)
+            Armor shield = npc.GetEquippedShield()
+            npc.UnequipItem(shield)
         EndIf
     EndIf
 EndFunction
