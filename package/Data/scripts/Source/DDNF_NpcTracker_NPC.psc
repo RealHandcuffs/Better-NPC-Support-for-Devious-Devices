@@ -104,18 +104,18 @@ Function Clear() ; override
             If (_useUnarmedCombatPackage)
                 UnregisterForAnimationEvent(npc, "BeginWeaponDraw")
                 npc.RemoveFromFaction(npcTracker.UnarmedCombatants)
-            EndIf
-            If (_helpless)
-                npc.RemoveFromFaction(npcTracker.Helpless)
+                If (_helpless)
+                    npc.RemoveFromFaction(npcTracker.Helpless)
+                    ; restore ability to draw weapons by changing equipped weapons
+                    npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
+                    _hasDummyWeapon = true ; should already be true, but set it to be sure
+                EndIf
+                npc.UnequipItemEx(npcTracker.DummyWeapon)
             EndIf
             If (_hasDummyWeapon)
-                If (_useUnarmedCombatPackage)
-                    npc.EquipItemEx(npcTracker.DummyWeapon, equipSound=false) ; restore ability to draw weapons
-                    npc.UnequipItemEx(npcTracker.DummyWeapon)
-                EndIf
                 Int dummyWeaponCount = npc.GetItemCount(npcTracker.DummyWeapon)
                 If (dummyWeaponCount > 0)
-                    npc.RemoveItem(npcTracker.DummyWeapon, aiCount=dummyWeaponCount)
+                    npc.RemoveItem(npcTracker.DummyWeapon, aiCount=dummyWeaponCount, abSilent=true)
                 EndIf
             EndIf
             ; no reason to clear the state, it will be set correctly in ForceRefTo() or in the Fixup following it
@@ -187,11 +187,11 @@ Event OnCombatStateChanged(Actor akTarget, Int aeCombatState)
     If (_useUnarmedCombatPackage && !_helpless)
         Actor npc = GetReference() as Actor
         If (npc != None)
-            If (aeCombatState > 0)
-                DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
-                npc.EquipItemEx(npcTracker.DummyWeapon, equipSound=false) ; restore ability to draw weapons
-            ElseIf (!_fixupLock)
-                SheatheWeaponHack(npc)
+            DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
+            If (aeCombatState == 1)
+				UnequipWeapons(npc) ; combat override package will make sure NPC is only using unarmed combat
+            Else
+                npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
             EndIf
         EndIf
     EndIf
@@ -206,12 +206,12 @@ Event OnAnimationEvent(ObjectReference akSource, string asEventName)
         Return
     EndIf
     If (asEventName == "BeginWeaponDraw")
-        If (_useUnarmedCombatPackage && (_helpless || npc.GetCombatState() == 0))
-            Utility.Wait(1.2)
-            If (npc == (GetReference() as Actor) && _useUnarmedCombatPackage && (_helpless || npc.GetCombatState() == 0)) ; recheck conditions after wait
-                If (!_fixupLock)
-                    SheatheWeaponHack(npc)
-                EndIf
+        If (_useUnarmedCombatPackage && (_helpless || npc.GetCombatState() != 1))
+            DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
+            npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
+            If (_helpless)
+                Debug.SendAnimationEvent(npc, "IdleForceDefaultState") ; black magic
+                npc.SheatheWeapon()
             EndIf
         EndIf
     Else
@@ -407,14 +407,25 @@ Event OnUpdate()
     Bool useUnarmedCombatPackage = Math.LogicalAnd(renderedDevicesFlags, 256)
     Bool helpless = Math.LogicalAnd(renderedDevicesFlags, 512)
     Bool hasAnimation = Math.LogicalAnd(renderedDevicesFlags, 1024)
-    ; also add dummy weapon if necessary
+    ; also add/remove dummy weapon if necessary
     ; we need to do this now, before actually fixing devices
-    If (useUnarmedCombatPackage && !helpless || !useUnarmedCombatPackage && (hasAnimation || _useUnarmedCombatPackage))
+    If (useUnarmedCombatPackage)
         If (!_hasDummyWeapon)
             _hasDummyWeapon = true
-            npc.AddItem(npcTracker.DummyWeapon)
+            npc.AddItem(npcTracker.DummyWeapon, abSilent=true)
         EndIf
-    EndIf
+    Else
+        If (_hasDummyWeapon)
+            Int dummyWeaponCount = npc.GetItemCount(npcTracker.DummyWeapon)
+            If (dummyWeaponCount > 0)
+                npc.RemoveItem(npcTracker.DummyWeapon, aiCount=dummyWeaponCount, abSilent=true)
+            EndIf
+            _hasDummyWeapon = false
+        EndIf
+        If (_hasAnimation && npc.IsWeaponDrawn())
+            npc.SheatheWeapon()
+        EndIf
+    EndIf        
     
     ; step two: unequip and reequip all rendered devices to restart the effects
     ; from this point on we need to abort and restart the fixup if something changes
@@ -455,7 +466,6 @@ Event OnUpdate()
         
     ; step three: handle weapons and animation effects
     If (useUnarmedCombatPackage) ; implies hasAnimation
-        ; modifying animations will have the same effect as SheatheWeaponHack if weapons are drawn
         If (_animationIsApplied)
             ; only restart idle, animations are still set up from previous fixup
             UnequipWeapons(npc)
@@ -467,14 +477,15 @@ Event OnUpdate()
             EndIf
             UnequipWeapons(npc)
             ddLibs.BoundCombat.EvaluateAA(npc) ; very expensive call
-            npc.SheatheWeapon() ; may do nothing
             _animationIsApplied = true
         EndIf
         RegisterForAnimationEvent(npc, "BeginWeaponDraw") ; register even if we think that we are already registered
+        npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
     Else
         Bool restoreWeaponAccess = false
         If (hasAnimation)
-            ; modifying animations will have the same effect as SheatheWeaponHack if weapons are drawn
+            ; modifying animations will cause a weird state where the NPC cannot draw weapons if if they are currently drawn
+            ; this can be reverted by changing the equipped weapons of the npc
             restoreWeaponAccess = npc.IsWeaponDrawn()
             If (_animationIsApplied)
                 ; only re-start idle as animations are already set
@@ -489,11 +500,11 @@ Event OnUpdate()
             EndIf
         EndIf
         If (_useUnarmedCombatPackage)
-            restoreWeaponAccess = true
             UnregisterForAnimationEvent(npc, "BeginWeaponDraw")
         EndIf
         If (restoreWeaponAccess)
-            npc.EquipItemEx(npcTracker.DummyWeapon, equipSound=false)
+            ; restore ability to draw weapons by changing equipped weapons
+            UnequipWeapons(npc)
         EndIf
     EndIf
 	; almost done, so do not abort and reschedule if another fixup is scheduled, just let things run their normal course instead
@@ -516,9 +527,6 @@ Event OnUpdate()
     ElseIf (_helpless)
         npc.RemoveFromFaction(npcTracker.Helpless)
         _helpless = false
-    EndIf
-    If (_useUnarmedCombatPackage && !_helpless && npc.GetCombatState() > 0)
-        npc.EquipItemEx(npcTracker.DummyWeapon, equipSound=false) ; restore ability to draw weapons
     EndIf
     
     ; done
@@ -626,7 +634,7 @@ Int Function UnequipDevices(Actor npc, Armor[] renderedDevices, Int devicesWithM
         If (npc.IsEquipped(renderedDevices[index]))
             ; unequip devices with magical effects
             If (index < devicesWithMagicalEffectCount)
-                npc.UnequipItem(renderedDevices[index], abPreventEquip=true)
+                npc.UnequipItem(renderedDevices[index], abPreventEquip=true, abSilent=true)
                 bitmapToEquip = Math.LogicalOr(bitmapToEquip, currentBit)
             EndIf
         Else
@@ -636,7 +644,7 @@ Int Function UnequipDevices(Actor npc, Armor[] renderedDevices, Int devicesWithM
             Int slotMask = renderedDevices[index].GetSlotMask()
             Armor conflictingItem = npc.GetWornForm(slotMask) as Armor
             If (conflictingItem != None)
-                npc.UnequipItem(conflictingItem, abPreventEquip=true)
+                npc.UnequipItem(conflictingItem, abPreventEquip=true, abSilent=true)
             EndIf
             bitmapToEquip = Math.LogicalOr(bitmapToEquip, currentBit)
         EndIf
@@ -654,7 +662,7 @@ Function ReequipDevices(Actor npc, Armor[] renderedDevices, int bitmapToEquip) G
     Int index = 0
     While (equippedBitmap != bitmapToEquip)
         If (Math.LogicalAnd(bitmapToEquip, currentBit) != 0)
-            npc.EquipItem(renderedDevices[index], abPreventRemoval=true)
+            npc.EquipItem(renderedDevices[index], abPreventRemoval=true, abSilent=true)
             equippedBitmap = Math.LogicalOr(equippedBitmap, currentBit)
         EndIf
         currentBit = Math.LeftShift(currentBit, 1)
@@ -682,43 +690,44 @@ Bool Function CheckDevicesEquipped(Actor npc, Armor[] renderedDevices, int bitma
 EndFunction
 
 
-Function SheatheWeaponHack(Actor npc) Global
-    ; only works when weapons are currently drawn
-    ; will prevent the npc from drawing weapons again until equipped weapon changes
-    UnequipWeapons(npc)
-    Debug.SendAnimationEvent(npc, "IdleForceDefaultState") ; black magic
-    npc.SheatheWeapon()
-EndFunction
-
-
-Function UnequipWeapons(Actor npc) Global
+Bool Function UnequipWeapons(Actor npc) Global
+    ; detect right hand weapon/spell (two-handed weapon counts as right hand)
     Int itemType = npc.GetEquippedItemType(1)
-    Bool isOneHandedWeapon = itemType >= 1 && itemType <= 4 || itemType == 8 || itemType == 11
     Bool isTwoHandedWeapon = itemType >= 5 && itemType <= 7 || itemType == 12
-    Bool isSpell = itemType == 9
-    If (isOneHandedWeapon || isTwoHandedWeapon)
-        Weapon rightHandWeapon = npc.GetEquippedWeapon(false)
-        npc.UnequipItemEx(rightHandWeapon, equipSlot=1)
-    ElseIf (isSpell)
-        Spell rightHandSpell = npc.GetEquippedSpell(1)
-        npc.UnequipSpell(rightHandSpell, 1)
+    Weapon rightHandWeapon = None
+    Spell rightHandSpell = None
+    If (isTwoHandedWeapon || itemType >= 1 && itemType <= 4 || itemType == 8 || itemType == 11)
+        rightHandWeapon = npc.GetEquippedWeapon(false)
+    ElseIf (itemType == 9)
+        rightHandSpell = npc.GetEquippedSpell(1)
     EndIf
+    ; detect and unequip left-hand weapon/spell/shield
+    Bool unequipped = false
     If (!isTwoHandedWeapon)
         itemType = npc.GetEquippedItemType(0)
-        isOneHandedWeapon = itemType >= 1 && itemType <= 4 || itemType == 8 || itemType == 11
-        isSpell = itemType == 9
-        Bool isShield = itemType == 10
-        If (isOneHandedWeapon)
+        If (itemType >= 1 && itemType <= 4 || itemType == 8 || itemType == 11)
             Weapon leftHandWeapon = npc.GetEquippedWeapon(true)
             npc.UnequipItemEx(leftHandWeapon, equipSlot=0)
-        ElseIf (isSpell)
+            unequipped = true
+        ElseIf (itemType == 9)
             Spell leftHandSpell = npc.GetEquippedSpell(0)
             npc.UnequipSpell(leftHandSpell, 0)
-        ElseIf (isShield)
+            unequipped = true
+        ElseIf (itemType == 10)
             Armor shield = npc.GetEquippedShield()
-            npc.UnequipItem(shield)
+            npc.UnequipItem(shield, abSilent=true)
+            unequipped = true
         EndIf
     EndIf
+    ; unequip right-hand weapon/spell
+    If (rightHandWeapon != None)
+        npc.UnequipItemEx(rightHandWeapon, equipSlot=1)
+        unequipped = true
+    ElseIf (rightHandSpell != None)
+        npc.UnequipSpell(rightHandSpell, 1)
+        unequipped = true
+    EndIf
+    Return unequipped
 EndFunction
 
 

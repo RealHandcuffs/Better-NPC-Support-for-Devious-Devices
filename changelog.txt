@@ -32,3 +32,4 @@ Version 0.1 RC 1
 - Use a workaround to force the game to correctly hide body parts according to armor addon item slots (this fixes hands clipping out of elbowbinders).
 - When scanning devices, check for each device if it has an enchantment; if not, assume it has no special functionality (e.g. heavy bondage, different animations).
 - When unequipping and reequipping devices, skip devices that have no enchantment (they have no effect that needs to be restarted).
+- Improve handling of weapons for bound followers: They should no longer try to draw weapons, and they should no longer run with one or both arms sticking out.
