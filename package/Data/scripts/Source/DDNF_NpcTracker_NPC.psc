@@ -172,14 +172,30 @@ Function HandleItemAddedRemoved(Form akBaseItem)
             If (maybeArmor.HasKeyword(ddLibs.zad_Lockable))
                 ; a device has been added or removed, we need to rescan for devices
                 _renderedDevicesFlags = -1
-                If (_animationIsApplied && maybeArmor.GetEnchantment() != None)
-                    ; this device might also change the animation
+                If (_animationIsApplied && ModifiesAnimation(ddLibs, maybeArmor))
+                    ; the device also changes the animation
                     _animationIsApplied = false
                 EndIf
             EndIf
         EndIf
         RegisterForFixup()
     EndIf
+EndFunction
+
+
+Bool Function ModifiesAnimation(zadLibs ddLibs, Armor renderedDevice) Global
+    ; basically the same logic as the one used to set the hasHeavyBondage/hasAnimation flags in FindAndAnalyzeRenderedDevices
+    If (renderedDevice.GetEnchantment() != None)
+        If (renderedDevice.HasKeyword(ddLibs.zad_DeviousHeavyBondage))
+			; heavy bondage device
+            Return true
+        EndIf
+        If (renderedDevice.HasKeyword(ddLibs.zad_DeviousPonyGear) || renderedDevice.HasKeyword(ddLibs.zad_DeviousHobbleSkirt) && !renderedDevice.HasKeyword(ddLibs.zad_DeviousHobbleSkirtRelaxed))
+			; device other than heavy bondage that requires animation
+            Return true
+        EndIf
+    EndIf
+    Return false
 EndFunction
 
 
@@ -265,8 +281,8 @@ Function HandleItemAddedRemoved(Form akBaseItem)
         If (maybeArmor.HasKeyword(ddLibs.zad_Lockable))
             ; a device has been added or removed, we need to rescan for devices
             _renderedDevicesFlags = -1
-            If (_animationIsApplied && maybeArmor.GetEnchantment() != None)
-                ; this device might also change the animation
+            If (_animationIsApplied && ModifiesAnimation(ddLibs, maybeArmor))
+                ; the device also changes the animation
                 _animationIsApplied = false
             EndIf
             ; switch state
@@ -548,19 +564,10 @@ EndEvent
 ; 1024 - flag: has animation
 ;
 Int Function FindAndAnalyzeRenderedDevices(zadLibs ddLibs, Bool useBoundCombat, Actor npc, Armor[] renderedDevices) Global
+    ; find devices
     Keyword zadLockable = ddLibs.zad_Lockable
-    Keyword zadDeviousHeavyBondage = ddLibs.zad_DeviousHeavyBondage
-    Keyword zadDeviousBondageMittens = ddLibs.zad_DeviousBondageMittens
-    Keyword zadBoundCombatDisableKick = ddLibs.zad_BoundCombatDisableKick
-    Keyword zadDeviousPonyGear = ddLibs.zad_DeviousPonyGear
-    Keyword zadDeviousHobbleSkirt = ddLibs.zad_DeviousHobbleSkirt
-    Keyword zadDeviousHobbleSkirtRelaxed = ddLibs.zad_DeviousHobbleSkirtRelaxed
     Int bottomIndex = 0
     Int topIndex = renderedDevices.Length
-    Bool useUnarmedCombatPackage = false
-    Bool hasHeavyBondage = false
-    Bool disableKick = !useBoundCombat
-    Bool hasAnimation = false
     Int index = 0
     Int count = npc.GetNumItems()
     While (index < count && bottomIndex < topIndex)
@@ -568,50 +575,96 @@ Int Function FindAndAnalyzeRenderedDevices(zadLibs ddLibs, Bool useBoundCombat, 
         If (maybeRenderedDevice != None && maybeRenderedDevice.HasKeyword(zadLockable))
             ; found a rendered device
             If (maybeRenderedDevice.GetEnchantment() == None)
-                ; put devices without magical effect at top of array
+                ; put devices without magical effect temporarily at top of array
                 topIndex -= 1
                 renderedDevices[topIndex] = maybeRenderedDevice
-                ; assumption: devices without magical effects have none of the special effect DD keywords that we are interested in
             Else
                 ; put devices with magical effect at bottom of array
                 renderedDevices[bottomIndex] = maybeRenderedDevice
                 bottomIndex += 1
-                ; use unarmed combat when wearing heavy bondage and take note of the heavy bondage
-                If (!hasHeavyBondage && maybeRenderedDevice.HasKeyword(zadDeviousHeavyBondage))
-                    useUnarmedCombatPackage = true
-                    hasHeavyBondage = true
-                    hasAnimation = true
-                EndIf
-                ; use unarmed combat when wearing bondage mittens
-                If (!useUnarmedCombatPackage && maybeRenderedDevice.HasKeyword(zadDeviousBondageMittens))
-                    useUnarmedCombatPackage = true
-                EndIf
-                ; take note if not able to kick
-                If (!disableKick && maybeRenderedDevice.HasKeyword(zadBoundCombatDisableKick))
-                    disableKick = true
-                EndIf
-                ; check for devices other than heavy bondage that require animations
-                If (!hasAnimation && (maybeRenderedDevice.HasKeyword(zadDeviousPonyGear) || maybeRenderedDevice.HasKeyword(zadDeviousHobbleSkirt) && !maybeRenderedDevice.HasKeyword(zadDeviousHobbleSkirtRelaxed)))
-                    hasAnimation = true
-                EndIf
             EndIf
         EndIf
         index += 1
     EndWhile
-    Int flags = bottomIndex ; number of devices with magical effect
-    If (bottomIndex < topIndex)
-        ; move devices without magical effect to bottom of array, just after the devices with magical effect
+    index = bottomIndex
+    If (index < topIndex)
+        ; move devices without magical effect to bottom of array, just after devices with magical effect
         While (topIndex < renderedDevices.Length)
-            renderedDevices[bottomIndex] = renderedDevices[topIndex]
-            bottomIndex += 1
+            renderedDevices[index] = renderedDevices[topIndex]
+            index += 1
             renderedDevices[topIndex] = None
             topIndex += 1
         EndWhile
-        While (bottomIndex < renderedDevices.Length && renderedDevices[bottomIndex] != None) ; can only be true when reusing array
-            renderedDevices[bottomIndex] = None
-            bottomIndex += 1
-        EndWhile
     EndIf
+    While (index < renderedDevices.Length && renderedDevices[index] != None)
+        ; clear unused array slot (reusing the array and less devices found than last time)
+        renderedDevices[index] = None
+        index += 1
+    EndWhile
+    ; analyze devices, but only the ones with magical effect
+    ; (assumption: devices without magical effects have none of the special effect DD keywords that we are interested in)
+    Bool useUnarmedCombatPackage = false
+    Bool hasHeavyBondage = false
+    Bool disableKick = !useBoundCombat
+    Bool hasAnimation = false
+    If (bottomIndex > 0)
+        Keyword zadDeviousHeavyBondage = ddLibs.zad_DeviousHeavyBondage
+        index = 0
+        While (index < bottomIndex)
+            If (renderedDevices[index].HasKeyword(zadDeviousHeavyBondage))
+                ; use unarmed combat when wearing heavy bondage and take note of the heavy bondage
+                useUnarmedCombatPackage = true
+                hasHeavyBondage = true
+                hasAnimation = true
+                index = 999
+            Else
+                index += 1
+            EndIf
+        EndWhile
+        If (!useUnarmedCombatPackage)
+            Keyword zadDeviousBondageMittens = ddLibs.zad_DeviousBondageMittens
+            index = 0
+            While (index < bottomIndex)
+                If (renderedDevices[index].HasKeyword(zadDeviousBondageMittens))
+                    ; use unarmed combat when wearing bondage mittens
+                    useUnarmedCombatPackage = true
+                    index = 999
+                Else
+                    index += 1
+                EndIf
+            EndWhile
+        EndIf
+        If (hasHeavyBondage && !disableKick)
+            Keyword zadBoundCombatDisableKick = ddLibs.zad_BoundCombatDisableKick
+            index = 0
+            While (index < bottomIndex)
+                If (renderedDevices[index].HasKeyword(zadBoundCombatDisableKick))
+                    ; take note if not able to kick
+                    disableKick = true
+                    index = 999
+                Else
+                    index += 1
+                EndIf
+            EndWhile
+        EndIf
+        If (!hasAnimation)
+            Keyword zadDeviousPonyGear = ddLibs.zad_DeviousPonyGear
+            Keyword zadDeviousHobbleSkirt = ddLibs.zad_DeviousHobbleSkirt
+            Keyword zadDeviousHobbleSkirtRelaxed = ddLibs.zad_DeviousHobbleSkirtRelaxed
+            index = 0
+            While (index < bottomIndex)
+                If (renderedDevices[index].HasKeyword(zadDeviousPonyGear) || renderedDevices[index].HasKeyword(zadDeviousHobbleSkirt) && !renderedDevices[index].HasKeyword(zadDeviousHobbleSkirtRelaxed))
+                    ; found a device other than heavy bondage that requires animations
+                    hasAnimation = true
+                    index = 999
+                Else
+                    index += 1
+                EndIf
+            EndWhile
+        EndIf
+    EndIf
+    ; assemble return value
+    Int flags = bottomIndex ; number of devices with magical effect
     If (useUnarmedCombatPackage)
         flags += 256 ; use unarmed combat package
     EndIf
