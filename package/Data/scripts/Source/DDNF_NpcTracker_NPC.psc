@@ -208,6 +208,7 @@ Event OnCombatStateChanged(Actor akTarget, Int aeCombatState)
 				UnequipWeapons(npc) ; combat override package will make sure NPC is only using unarmed combat
             Else
                 npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
+                _hasDummyWeapon = true ; should already be true, but set it to be sure
             EndIf
         EndIf
     EndIf
@@ -225,6 +226,8 @@ Event OnAnimationEvent(ObjectReference akSource, string asEventName)
         If (_useUnarmedCombatPackage && (_helpless || npc.GetCombatState() != 1))
             DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
             npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
+            _hasDummyWeapon = true ; should already be true, but set it to be sure
+            UnequipWeapons(npc, true) ; for some reason the game sometimes keeps equipment in the left hand even though DummyWeapon is two-handed
             If (_helpless)
                 Debug.SendAnimationEvent(npc, "IdleForceDefaultState") ; black magic
                 npc.SheatheWeapon()
@@ -433,10 +436,10 @@ Event OnUpdate()
     Else
         If (_hasDummyWeapon)
             Int dummyWeaponCount = npc.GetItemCount(npcTracker.DummyWeapon)
+            _hasDummyWeapon = false
             If (dummyWeaponCount > 0)
                 npc.RemoveItem(npcTracker.DummyWeapon, aiCount=dummyWeaponCount, abSilent=true)
             EndIf
-            _hasDummyWeapon = false
         EndIf
         If (_hasAnimation && npc.IsWeaponDrawn())
             npc.SheatheWeapon()
@@ -484,19 +487,18 @@ Event OnUpdate()
     If (useUnarmedCombatPackage) ; implies hasAnimation
         If (_animationIsApplied)
             ; only restart idle, animations are still set up from previous fixup
-            UnequipWeapons(npc)
             Debug.SendAnimationEvent(npc, "IdleForceDefaultState")
         else
             ; use the full procuedure
             If (enablePapyrusLogging)
                 Debug.Trace("[DDNF] Reevaluating animations of " + formIdAndName + ".")
             EndIf
-            UnequipWeapons(npc)
             ddLibs.BoundCombat.EvaluateAA(npc) ; very expensive call
             _animationIsApplied = true
         EndIf
-        RegisterForAnimationEvent(npc, "BeginWeaponDraw") ; register even if we think that we are already registered
         npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
+        UnequipWeapons(npc, true) ; for some reason the game sometimes keeps equipment in the left hand even though DummyWeapon is two-handed
+        RegisterForAnimationEvent(npc, "BeginWeaponDraw") ; register even if we think that we are already registered
     Else
         Bool restoreWeaponAccess = false
         If (hasAnimation)
@@ -743,26 +745,24 @@ Bool Function CheckDevicesEquipped(Actor npc, Armor[] renderedDevices, int bitma
 EndFunction
 
 
-Bool Function UnequipWeapons(Actor npc) Global
+Bool Function UnequipWeapons(Actor npc, Bool unequipLeftHandOnly = false) Global
     ; detect right hand weapon/spell (two-handed weapon counts as right hand)
-    Int itemType = npc.GetEquippedItemType(1)
-    Bool isTwoHandedWeapon = itemType >= 5 && itemType <= 7 || itemType == 12
+    Int itemType;
     Weapon rightHandWeapon = None
     Spell rightHandSpell = None
-    If (isTwoHandedWeapon || itemType >= 1 && itemType <= 4 || itemType == 8 || itemType == 11)
-        rightHandWeapon = npc.GetEquippedWeapon(false)
-    ElseIf (itemType == 9)
-        rightHandSpell = npc.GetEquippedSpell(1)
+    If (!unequipLeftHandOnly)
+        itemType = npc.GetEquippedItemType(1)
+        If (itemType == 9)
+            rightHandSpell = npc.GetEquippedSpell(1)
+        Else
+            rightHandWeapon = npc.GetEquippedWeapon(false)
+        EndIf
     EndIf
     ; detect and unequip left-hand weapon/spell/shield
     Bool unequipped = false
-    If (!isTwoHandedWeapon)
-        itemType = npc.GetEquippedItemType(0)
-        If (itemType >= 1 && itemType <= 4 || itemType == 8 || itemType == 11)
-            Weapon leftHandWeapon = npc.GetEquippedWeapon(true)
-            npc.UnequipItemEx(leftHandWeapon, equipSlot=0)
-            unequipped = true
-        ElseIf (itemType == 9)
+    itemType = npc.GetEquippedItemType(0)
+    If (itemType != 0)
+        If (itemType == 9)
             Spell leftHandSpell = npc.GetEquippedSpell(0)
             npc.UnequipSpell(leftHandSpell, 0)
             unequipped = true
@@ -770,14 +770,18 @@ Bool Function UnequipWeapons(Actor npc) Global
             Armor shield = npc.GetEquippedShield()
             npc.UnequipItem(shield, abSilent=true)
             unequipped = true
+        Else
+            Weapon leftHandWeapon = npc.GetEquippedWeapon(true)
+            npc.UnequipItemEx(leftHandWeapon, equipSlot=0)
+            unequipped = true
         EndIf
     EndIf
     ; unequip right-hand weapon/spell
-    If (rightHandWeapon != None)
-        npc.UnequipItemEx(rightHandWeapon, equipSlot=1)
-        unequipped = true
-    ElseIf (rightHandSpell != None)
+    If (rightHandSpell != None)
         npc.UnequipSpell(rightHandSpell, 1)
+        unequipped = true
+    ElseIf (rightHandWeapon != None)
+        npc.UnequipItemEx(rightHandWeapon, equipSlot=1)
         unequipped = true
     EndIf
     Return unequipped
