@@ -27,3 +27,9 @@ Version 0.1 Beta 5
 - Only allow fixing devices of 3 NPCs over a period of 3 seconds (slow down).
 - Various other small optimizations.
 - Add very minimal logging. It is off by default and can be enabled using "setpqv DDNF_NpcTracker EnablePapyrusLogging true".
+
+Version 0.1 RC 1
+- Use a workaround to force the game to correctly hide body parts according to armor addon item slots (this fixes hands clipping out of elbowbinders).
+- When scanning devices, check for each device if it has an enchantment; if not, assume it has no special functionality (e.g. heavy bondage, different animations).
+- When unequipping and reequipping devices, skip devices that have no enchantment (they have no effect that needs to be restarted).
+- Improve handling of weapons for bound followers: They should no longer try to draw weapons, and they should no longer run with one or both arms sticking out.
