@@ -172,14 +172,30 @@ Function HandleItemAddedRemoved(Form akBaseItem)
             If (maybeArmor.HasKeyword(ddLibs.zad_Lockable))
                 ; a device has been added or removed, we need to rescan for devices
                 _renderedDevicesFlags = -1
-                If (_animationIsApplied && maybeArmor.GetEnchantment() != None)
-                    ; this device might also change the animation
+                If (_animationIsApplied && ModifiesAnimation(ddLibs, maybeArmor))
+                    ; the device also changes the animation
                     _animationIsApplied = false
                 EndIf
             EndIf
         EndIf
         RegisterForFixup()
     EndIf
+EndFunction
+
+
+Bool Function ModifiesAnimation(zadLibs ddLibs, Armor renderedDevice) Global
+    ; basically the same logic as the one used to set the hasHeavyBondage/hasAnimation flags in FindAndAnalyzeRenderedDevices
+    If (renderedDevice.GetEnchantment() != None)
+        If (renderedDevice.HasKeyword(ddLibs.zad_DeviousHeavyBondage))
+			; heavy bondage device
+            Return true
+        EndIf
+        If (renderedDevice.HasKeyword(ddLibs.zad_DeviousPonyGear) || renderedDevice.HasKeyword(ddLibs.zad_DeviousHobbleSkirt) && !renderedDevice.HasKeyword(ddLibs.zad_DeviousHobbleSkirtRelaxed))
+			; device other than heavy bondage that requires animation
+            Return true
+        EndIf
+    EndIf
+    Return false
 EndFunction
 
 
@@ -192,6 +208,7 @@ Event OnCombatStateChanged(Actor akTarget, Int aeCombatState)
 				UnequipWeapons(npc) ; combat override package will make sure NPC is only using unarmed combat
             Else
                 npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
+                _hasDummyWeapon = true ; should already be true, but set it to be sure
             EndIf
         EndIf
     EndIf
@@ -209,6 +226,8 @@ Event OnAnimationEvent(ObjectReference akSource, string asEventName)
         If (_useUnarmedCombatPackage && (_helpless || npc.GetCombatState() != 1))
             DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
             npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
+            _hasDummyWeapon = true ; should already be true, but set it to be sure
+            UnequipWeapons(npc, true) ; for some reason the game sometimes keeps equipment in the left hand even though DummyWeapon is two-handed
             If (_helpless)
                 Debug.SendAnimationEvent(npc, "IdleForceDefaultState") ; black magic
                 npc.SheatheWeapon()
@@ -265,8 +284,8 @@ Function HandleItemAddedRemoved(Form akBaseItem)
         If (maybeArmor.HasKeyword(ddLibs.zad_Lockable))
             ; a device has been added or removed, we need to rescan for devices
             _renderedDevicesFlags = -1
-            If (_animationIsApplied && maybeArmor.GetEnchantment() != None)
-                ; this device might also change the animation
+            If (_animationIsApplied && ModifiesAnimation(ddLibs, maybeArmor))
+                ; the device also changes the animation
                 _animationIsApplied = false
             EndIf
             ; switch state
@@ -417,10 +436,10 @@ Event OnUpdate()
     Else
         If (_hasDummyWeapon)
             Int dummyWeaponCount = npc.GetItemCount(npcTracker.DummyWeapon)
+            _hasDummyWeapon = false
             If (dummyWeaponCount > 0)
                 npc.RemoveItem(npcTracker.DummyWeapon, aiCount=dummyWeaponCount, abSilent=true)
             EndIf
-            _hasDummyWeapon = false
         EndIf
         If (_hasAnimation && npc.IsWeaponDrawn())
             npc.SheatheWeapon()
@@ -468,19 +487,18 @@ Event OnUpdate()
     If (useUnarmedCombatPackage) ; implies hasAnimation
         If (_animationIsApplied)
             ; only restart idle, animations are still set up from previous fixup
-            UnequipWeapons(npc)
             Debug.SendAnimationEvent(npc, "IdleForceDefaultState")
         else
             ; use the full procuedure
             If (enablePapyrusLogging)
                 Debug.Trace("[DDNF] Reevaluating animations of " + formIdAndName + ".")
             EndIf
-            UnequipWeapons(npc)
             ddLibs.BoundCombat.EvaluateAA(npc) ; very expensive call
             _animationIsApplied = true
         EndIf
-        RegisterForAnimationEvent(npc, "BeginWeaponDraw") ; register even if we think that we are already registered
         npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
+        UnequipWeapons(npc, true) ; for some reason the game sometimes keeps equipment in the left hand even though DummyWeapon is two-handed
+        RegisterForAnimationEvent(npc, "BeginWeaponDraw") ; register even if we think that we are already registered
     Else
         Bool restoreWeaponAccess = false
         If (hasAnimation)
@@ -548,19 +566,10 @@ EndEvent
 ; 1024 - flag: has animation
 ;
 Int Function FindAndAnalyzeRenderedDevices(zadLibs ddLibs, Bool useBoundCombat, Actor npc, Armor[] renderedDevices) Global
+    ; find devices
     Keyword zadLockable = ddLibs.zad_Lockable
-    Keyword zadDeviousHeavyBondage = ddLibs.zad_DeviousHeavyBondage
-    Keyword zadDeviousBondageMittens = ddLibs.zad_DeviousBondageMittens
-    Keyword zadBoundCombatDisableKick = ddLibs.zad_BoundCombatDisableKick
-    Keyword zadDeviousPonyGear = ddLibs.zad_DeviousPonyGear
-    Keyword zadDeviousHobbleSkirt = ddLibs.zad_DeviousHobbleSkirt
-    Keyword zadDeviousHobbleSkirtRelaxed = ddLibs.zad_DeviousHobbleSkirtRelaxed
     Int bottomIndex = 0
     Int topIndex = renderedDevices.Length
-    Bool useUnarmedCombatPackage = false
-    Bool hasHeavyBondage = false
-    Bool disableKick = !useBoundCombat
-    Bool hasAnimation = false
     Int index = 0
     Int count = npc.GetNumItems()
     While (index < count && bottomIndex < topIndex)
@@ -568,50 +577,96 @@ Int Function FindAndAnalyzeRenderedDevices(zadLibs ddLibs, Bool useBoundCombat, 
         If (maybeRenderedDevice != None && maybeRenderedDevice.HasKeyword(zadLockable))
             ; found a rendered device
             If (maybeRenderedDevice.GetEnchantment() == None)
-                ; put devices without magical effect at top of array
+                ; put devices without magical effect temporarily at top of array
                 topIndex -= 1
                 renderedDevices[topIndex] = maybeRenderedDevice
-                ; assumption: devices without magical effects have none of the special effect DD keywords that we are interested in
             Else
                 ; put devices with magical effect at bottom of array
                 renderedDevices[bottomIndex] = maybeRenderedDevice
                 bottomIndex += 1
-                ; use unarmed combat when wearing heavy bondage and take note of the heavy bondage
-                If (!hasHeavyBondage && maybeRenderedDevice.HasKeyword(zadDeviousHeavyBondage))
-                    useUnarmedCombatPackage = true
-                    hasHeavyBondage = true
-                    hasAnimation = true
-                EndIf
-                ; use unarmed combat when wearing bondage mittens
-                If (!useUnarmedCombatPackage && maybeRenderedDevice.HasKeyword(zadDeviousBondageMittens))
-                    useUnarmedCombatPackage = true
-                EndIf
-                ; take note if not able to kick
-                If (!disableKick && maybeRenderedDevice.HasKeyword(zadBoundCombatDisableKick))
-                    disableKick = true
-                EndIf
-                ; check for devices other than heavy bondage that require animations
-                If (!hasAnimation && (maybeRenderedDevice.HasKeyword(zadDeviousPonyGear) || maybeRenderedDevice.HasKeyword(zadDeviousHobbleSkirt) && !maybeRenderedDevice.HasKeyword(zadDeviousHobbleSkirtRelaxed)))
-                    hasAnimation = true
-                EndIf
             EndIf
         EndIf
         index += 1
     EndWhile
-    Int flags = bottomIndex ; number of devices with magical effect
-    If (bottomIndex < topIndex)
-        ; move devices without magical effect to bottom of array, just after the devices with magical effect
+    index = bottomIndex
+    If (index < topIndex)
+        ; move devices without magical effect to bottom of array, just after devices with magical effect
         While (topIndex < renderedDevices.Length)
-            renderedDevices[bottomIndex] = renderedDevices[topIndex]
-            bottomIndex += 1
+            renderedDevices[index] = renderedDevices[topIndex]
+            index += 1
             renderedDevices[topIndex] = None
             topIndex += 1
         EndWhile
-        While (bottomIndex < renderedDevices.Length && renderedDevices[bottomIndex] != None) ; can only be true when reusing array
-            renderedDevices[bottomIndex] = None
-            bottomIndex += 1
-        EndWhile
     EndIf
+    While (index < renderedDevices.Length && renderedDevices[index] != None)
+        ; clear unused array slot (reusing the array and less devices found than last time)
+        renderedDevices[index] = None
+        index += 1
+    EndWhile
+    ; analyze devices, but only the ones with magical effect
+    ; (assumption: devices without magical effects have none of the special effect DD keywords that we are interested in)
+    Bool useUnarmedCombatPackage = false
+    Bool hasHeavyBondage = false
+    Bool disableKick = !useBoundCombat
+    Bool hasAnimation = false
+    If (bottomIndex > 0)
+        Keyword zadDeviousHeavyBondage = ddLibs.zad_DeviousHeavyBondage
+        index = 0
+        While (index < bottomIndex)
+            If (renderedDevices[index].HasKeyword(zadDeviousHeavyBondage))
+                ; use unarmed combat when wearing heavy bondage and take note of the heavy bondage
+                useUnarmedCombatPackage = true
+                hasHeavyBondage = true
+                hasAnimation = true
+                index = 999
+            Else
+                index += 1
+            EndIf
+        EndWhile
+        If (!useUnarmedCombatPackage)
+            Keyword zadDeviousBondageMittens = ddLibs.zad_DeviousBondageMittens
+            index = 0
+            While (index < bottomIndex)
+                If (renderedDevices[index].HasKeyword(zadDeviousBondageMittens))
+                    ; use unarmed combat when wearing bondage mittens
+                    useUnarmedCombatPackage = true
+                    index = 999
+                Else
+                    index += 1
+                EndIf
+            EndWhile
+        EndIf
+        If (hasHeavyBondage && !disableKick)
+            Keyword zadBoundCombatDisableKick = ddLibs.zad_BoundCombatDisableKick
+            index = 0
+            While (index < bottomIndex)
+                If (renderedDevices[index].HasKeyword(zadBoundCombatDisableKick))
+                    ; take note if not able to kick
+                    disableKick = true
+                    index = 999
+                Else
+                    index += 1
+                EndIf
+            EndWhile
+        EndIf
+        If (!hasAnimation)
+            Keyword zadDeviousPonyGear = ddLibs.zad_DeviousPonyGear
+            Keyword zadDeviousHobbleSkirt = ddLibs.zad_DeviousHobbleSkirt
+            Keyword zadDeviousHobbleSkirtRelaxed = ddLibs.zad_DeviousHobbleSkirtRelaxed
+            index = 0
+            While (index < bottomIndex)
+                If (renderedDevices[index].HasKeyword(zadDeviousPonyGear) || renderedDevices[index].HasKeyword(zadDeviousHobbleSkirt) && !renderedDevices[index].HasKeyword(zadDeviousHobbleSkirtRelaxed))
+                    ; found a device other than heavy bondage that requires animations
+                    hasAnimation = true
+                    index = 999
+                Else
+                    index += 1
+                EndIf
+            EndWhile
+        EndIf
+    EndIf
+    ; assemble return value
+    Int flags = bottomIndex ; number of devices with magical effect
     If (useUnarmedCombatPackage)
         flags += 256 ; use unarmed combat package
     EndIf
@@ -690,26 +745,24 @@ Bool Function CheckDevicesEquipped(Actor npc, Armor[] renderedDevices, int bitma
 EndFunction
 
 
-Bool Function UnequipWeapons(Actor npc) Global
+Bool Function UnequipWeapons(Actor npc, Bool unequipLeftHandOnly = false) Global
     ; detect right hand weapon/spell (two-handed weapon counts as right hand)
-    Int itemType = npc.GetEquippedItemType(1)
-    Bool isTwoHandedWeapon = itemType >= 5 && itemType <= 7 || itemType == 12
+    Int itemType;
     Weapon rightHandWeapon = None
     Spell rightHandSpell = None
-    If (isTwoHandedWeapon || itemType >= 1 && itemType <= 4 || itemType == 8 || itemType == 11)
-        rightHandWeapon = npc.GetEquippedWeapon(false)
-    ElseIf (itemType == 9)
-        rightHandSpell = npc.GetEquippedSpell(1)
+    If (!unequipLeftHandOnly)
+        itemType = npc.GetEquippedItemType(1)
+        If (itemType == 9)
+            rightHandSpell = npc.GetEquippedSpell(1)
+        Else
+            rightHandWeapon = npc.GetEquippedWeapon(false)
+        EndIf
     EndIf
     ; detect and unequip left-hand weapon/spell/shield
     Bool unequipped = false
-    If (!isTwoHandedWeapon)
-        itemType = npc.GetEquippedItemType(0)
-        If (itemType >= 1 && itemType <= 4 || itemType == 8 || itemType == 11)
-            Weapon leftHandWeapon = npc.GetEquippedWeapon(true)
-            npc.UnequipItemEx(leftHandWeapon, equipSlot=0)
-            unequipped = true
-        ElseIf (itemType == 9)
+    itemType = npc.GetEquippedItemType(0)
+    If (itemType != 0)
+        If (itemType == 9)
             Spell leftHandSpell = npc.GetEquippedSpell(0)
             npc.UnequipSpell(leftHandSpell, 0)
             unequipped = true
@@ -717,14 +770,18 @@ Bool Function UnequipWeapons(Actor npc) Global
             Armor shield = npc.GetEquippedShield()
             npc.UnequipItem(shield, abSilent=true)
             unequipped = true
+        Else
+            Weapon leftHandWeapon = npc.GetEquippedWeapon(true)
+            npc.UnequipItemEx(leftHandWeapon, equipSlot=0)
+            unequipped = true
         EndIf
     EndIf
     ; unequip right-hand weapon/spell
-    If (rightHandWeapon != None)
-        npc.UnequipItemEx(rightHandWeapon, equipSlot=1)
-        unequipped = true
-    ElseIf (rightHandSpell != None)
+    If (rightHandSpell != None)
         npc.UnequipSpell(rightHandSpell, 1)
+        unequipped = true
+    ElseIf (rightHandWeapon != None)
+        npc.UnequipItemEx(rightHandWeapon, equipSlot=1)
         unequipped = true
     EndIf
     Return unequipped
