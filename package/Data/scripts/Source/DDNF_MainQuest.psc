@@ -44,6 +44,8 @@ Function HandleGameLoaded(Bool upgrade)
         Alias[] emptyArray
         _cachedScannerAliases = emptyArray
     EndIf
+    ; refresh event registrations
+    RegisterForModEvent("DDI_DeviceEquipped", "OnDDI_DeviceEquipped")
     ; queue scan "soon"
     RegisterForSingleUpdate(1.0)
 EndFunction
@@ -53,6 +55,14 @@ Function HandleLoadingScreen()
     ; scan for nearby NPCs soon after the loading screen instead of waiting for the queued event
     RegisterForSingleUpdate(1.0)
 EndFunction
+
+
+Event OnDDI_DeviceEquipped(Form inventoryDevice, Form deviceKeyword, Form akActor)
+    ; DDi event when device is equipped
+    If (NpcTracker.IsRunning() && akActor != NpcTracker.Player)
+        NpcTracker.HandleDeviceEquipped(akActor as Actor, inventoryDevice as Armor, false)
+    EndIf
+EndEvent
 
 
 Event OnUpdate()

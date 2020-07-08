@@ -19,6 +19,7 @@ Bool _hasDummyWeapon
 ; there is also a script state, so this is not the whole picture
 Bool _ignoreNotEquippedInNextFixup
 Bool _animationIsApplied
+Bool _animationNeedsRefresh
 Bool _fixupLock
 Float _lastFixupRealTime
 
@@ -33,6 +34,7 @@ Function HandleGameLoaded(Bool upgrade)
         ; clear on upgrade, NPC will be re-added if found again
         ; also clear if NPC is dead (safety check in case OnDeath was missed somehow)
         If (upgrade || npc.IsDead())
+            _animationIsApplied = false ; cheap trick to prevent EvaluateAA call
             Clear()
         ; also do a safety check in case OnUnload was missed somehow
         ElseIf (!npc.Is3DLoaded())
@@ -72,6 +74,7 @@ Function ForceRefTo(ObjectReference akNewRef) ; override
         _hasDummyWeapon = npc.GetItemCount(npcTracker.DummyWeapon) > 0
         _ignoreNotEquippedInNextFixup = false
         _animationIsApplied = false
+        _animationNeedsRefresh = false
         _fixupLock = false
         _lastFixupRealTime = 0.0
         RegisterForFixup()
@@ -112,6 +115,9 @@ Function Clear() ; override
                 EndIf
                 npc.UnequipItemEx(npcTracker.DummyWeapon)
             EndIf
+            If (_hasAnimation && _animationIsApplied)
+                npcTracker.DDLibs.BoundCombat.EvaluateAA(npc) ; very expensive call
+            EndIf
             If (_hasDummyWeapon)
                 Int dummyWeaponCount = npc.GetItemCount(npcTracker.DummyWeapon)
                 If (dummyWeaponCount > 0)
@@ -136,6 +142,7 @@ EndFunction
 
 Event OnDeath(Actor akKiller)
     ; stop tracking the NPC on death
+    _animationIsApplied = false
     Clear()
 EndEvent
 
@@ -172,9 +179,9 @@ Function HandleItemAddedRemoved(Form akBaseItem)
             If (maybeArmor.HasKeyword(ddLibs.zad_Lockable))
                 ; a device has been added or removed, we need to rescan for devices
                 _renderedDevicesFlags = -1
-                If (_animationIsApplied && ModifiesAnimation(ddLibs, maybeArmor))
+                If (_animationIsApplied && !_animationNeedsRefresh && ModifiesAnimation(ddLibs, maybeArmor))
                     ; the device also changes the animation
-                    _animationIsApplied = false
+                    _animationNeedsRefresh = true
                 EndIf
             EndIf
         EndIf
@@ -284,13 +291,13 @@ Function HandleItemAddedRemoved(Form akBaseItem)
         If (maybeArmor.HasKeyword(ddLibs.zad_Lockable))
             ; a device has been added or removed, we need to rescan for devices
             _renderedDevicesFlags = -1
-            If (_animationIsApplied && ModifiesAnimation(ddLibs, maybeArmor))
+            If (_animationIsApplied && !_animationNeedsRefresh && ModifiesAnimation(ddLibs, maybeArmor))
                 ; the device also changes the animation
-                _animationIsApplied = false
+                _animationNeedsRefresh = true
             EndIf
             ; switch state
             String currentState = GetState() ; might have changed since start of call
-			If (!_animationIsApplied && currentState == "AliasOccupiedWaitingForQuickFixup")
+			If ((!_animationIsApplied || _animationNeedsRefresh) && currentState == "AliasOccupiedWaitingForQuickFixup")
                 GotoState("AliasOccupiedWaitingForFullFixup") ; like RegisterForFixup but without changing the registered update
 			ElseIf (currentState == "AliasOccupied")
                 RegisterForFixup()
@@ -323,7 +330,7 @@ Function RegisterForFixup(Float delay = 1.0) ; 1.0 is usually a good compromise 
     ; 2. if there are multiple reasons for a fixup in quick succession, the fixup will only run once
     ; 3. it is an async operation, so when the scanner calls ForceRefIfEmpty it does not have to wait for the fixup
     
-    If (_renderedDevicesFlags < 0 && !_animationIsApplied)
+    If (_renderedDevicesFlags < 0 && (!_animationIsApplied || _animationNeedsRefresh))
         GotoState("AliasOccupiedWaitingForFullFixup")
     Else
         GotoState("AliasOccupiedWaitingForQuickFixup")
@@ -345,6 +352,7 @@ Event OnUpdate()
     _fixupLock = true ; we know it is currently false
     If (!npc.Is3DLoaded())
         _fixupLock = false
+        _animationIsApplied = false ; probably already false from OnUnload()
         Clear()
         Return
     EndIf
@@ -484,46 +492,37 @@ Event OnUpdate()
     EndIf
         
     ; step three: handle weapons and animation effects
-    If (useUnarmedCombatPackage) ; implies hasAnimation
-        If (_animationIsApplied)
-            ; only restart idle, animations are still set up from previous fixup
-            Debug.SendAnimationEvent(npc, "IdleForceDefaultState")
-        else
+    If (hasAnimation)
+        ; modifying animations will cause a weird state where the NPC cannot draw weapons if they are currently drawn
+        ; this can be reverted by changing the equipped weapons of the npc
+        Bool restoreWeaponAccess = !helpless && npc.IsWeaponDrawn()
+        If (_animationIsApplied && !_animationNeedsRefresh)
+            ; only re-start idle as animations are already set
+            Debug.SendAnimationEvent(npc, "IdleForceDefaultState") ; only re-start idle as animations are already set
+        Else
             ; use the full procuedure
+            _animationIsApplied = true
+            _animationNeedsRefresh = false
             If (enablePapyrusLogging)
                 Debug.Trace("[DDNF] Reevaluating animations of " + formIdAndName + ".")
             EndIf
             ddLibs.BoundCombat.EvaluateAA(npc) ; very expensive call
-            _animationIsApplied = true
-        EndIf
-        npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
-        UnequipWeapons(npc, true) ; for some reason the game sometimes keeps equipment in the left hand even though DummyWeapon is two-handed
-        RegisterForAnimationEvent(npc, "BeginWeaponDraw") ; register even if we think that we are already registered
-    Else
-        Bool restoreWeaponAccess = false
-        If (hasAnimation)
-            ; modifying animations will cause a weird state where the NPC cannot draw weapons if if they are currently drawn
-            ; this can be reverted by changing the equipped weapons of the npc
-            restoreWeaponAccess = npc.IsWeaponDrawn()
-            If (_animationIsApplied)
-                ; only re-start idle as animations are already set
-                Debug.SendAnimationEvent(npc, "IdleForceDefaultState") ; only re-start idle as animations are already set
-            Else
-                ; use the full procuedure
-                If (enablePapyrusLogging)
-                    Debug.Trace("[DDNF] Reevaluating animations of " + formIdAndName + ".")
-                EndIf
-                ddLibs.BoundCombat.EvaluateAA(npc) ; very expensive call
-                _animationIsApplied = true
-            EndIf
-        EndIf
-        If (_useUnarmedCombatPackage)
-            UnregisterForAnimationEvent(npc, "BeginWeaponDraw")
         EndIf
         If (restoreWeaponAccess)
             ; restore ability to draw weapons by changing equipped weapons
             UnequipWeapons(npc)
         EndIf
+    ElseIf (_hasAnimation && _animationIsApplied)
+        ddLibs.BoundCombat.EvaluateAA(npc) ; very expensive call
+        _animationIsApplied = false
+        _animationNeedsRefresh = false
+    EndIf
+    If (useUnarmedCombatPackage)
+        npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
+        UnequipWeapons(npc, true) ; for some reason the game sometimes keeps equipment in the left hand even though DummyWeapon is two-handed
+        RegisterForAnimationEvent(npc, "BeginWeaponDraw") ; register even if we think that we are already registered
+    ElseIf (_useUnarmedCombatPackage)
+        UnregisterForAnimationEvent(npc, "BeginWeaponDraw")
     EndIf
 	; almost done, so do not abort and reschedule if another fixup is scheduled, just let things run their normal course instead
     
@@ -546,10 +545,11 @@ Event OnUpdate()
         npc.RemoveFromFaction(npcTracker.Helpless)
         _helpless = false
     EndIf
-    
-    ; done
+    _hasAnimation = hasAnimation
     _lastFixupRealTime = Utility.GetCurrentRealTime()
     _fixupLock = false
+
+    ; done
     If (enablePapyrusLogging)
         Debug.Trace("[DDNF] Succeeded fixing up devices of " + formIdAndName + ".")
     EndIf
