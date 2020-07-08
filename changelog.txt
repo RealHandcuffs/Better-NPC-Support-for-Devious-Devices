@@ -38,3 +38,6 @@ Version 0.1 RC 2
 - Optimization: Detect if an added/removed device does not change the existing animations (e.g. when gagging bound NPCs) and skip refreshing animations in that case.
 - Optimization: Refactor detection of keywords on devices, will hopefully reduce the amount of keyword checks for NPCs wearing many devices.
 - Fix: Prevent NPCs with bondage mittens from using shields.
+
+Version 0.1 RC 3
+- Changes to improve compatibility with DDe (and possibly other mods that use non-standard ways of equipping and unequipping devices).

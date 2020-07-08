@@ -5,7 +5,7 @@ Scriptname DDNF_MainQuest_Player extends ReferenceAlias
 
 Formlist Property EmptyFormlist Auto
 
-String Property Version = "0.1 RC 2" AutoReadOnly
+String Property Version = "0.1 RC 3" AutoReadOnly
 String _lastVersion
 
 
@@ -98,7 +98,11 @@ Event OnItemRemoved(Form akBaseItem, int aiItemCount, ObjectReference akItemRefe
     DDNF_NPCTracker npcTracker = (GetOwningQuest() as DDNF_MainQuest).NpcTracker
     If (akActor != None && maybeInventoryDevice != None && maybeInventoryDevice.HasKeyword(npcTracker.DDLibs.zad_InventoryDevice) && !akActor.IsDead())
         ; player trying to equip device on NPC, wait until container menu is closed
-        Utility.Wait(0.017)
+        Int waitCount = 0
+        While (UI.IsMenuOpen("ContainerMenu") && waitCount < 20) 
+            Utility.Wait(0.017)
+            waitCount += 1 ; really only to prevent endless loop in case IsMenuOpen misbehaves
+        EndWhile
         If (npcTracker.IsRunning() && akActor.GetItemCount(maybeInventoryDevice) > 0 && !akActor.IsDead())
             npcTracker.HandleDeviceEquipped(akActor, maybeInventoryDevice, true)
         EndIf

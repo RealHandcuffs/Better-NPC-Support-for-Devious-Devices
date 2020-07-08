@@ -84,22 +84,24 @@ EndFunction
 ; Add a NPC to the tracked NPCs.
 ; Caller should check that the NPC is alive and loaded; failing that will not
 ; cause problems though, it will just needlessly cause some script load.
-; Must NEVER be called with the player, or with NPCs who are already tracked.
+; Returns true if the actor was is tracked (either newly, or already was).
 ;
 Bool Function Add(Actor npc)
     ; find a free alias and put the npc into the alias
     If (npc == Player) ; catch api misuse
-        Return true
+        Return false
     EndIf
     Int index = 0
     Alias[] aliases = GetAliases()
-    If (npc.HasKeyword(TrackingKeyword)) ; api misuse, too - check for this as late as possible, i.e. directly before the loop
-        Return true
-    EndIf
     While (index < aliases.Length)
         ReferenceAlias refAlias = aliases[index] as ReferenceAlias
-        If (refAlias.ForceRefIfEmpty(npc))
-            Return true
+        If (refAlias.GetReference() == None)
+            If (npc.HasKeyword(TrackingKeyword)) ; check for this as late as possible, i.e. directly before ForceRefIfEmpty
+                Return true
+            EndIf
+            If (refAlias.ForceRefIfEmpty(npc)) ; can fail if the reference has been filled in the meantime
+                Return true
+            EndIf
         EndIf
         index += 1
     EndWhile
