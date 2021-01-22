@@ -37,8 +37,8 @@ Function HandleGameLoaded(Bool upgrade)
             _animationIsApplied = false ; cheap trick to prevent EvaluateAA call
             Clear()
         ; also do a safety check in case OnUnload was missed somehow
-        ElseIf (!npc.Is3DLoaded())
-            _animationIsApplied = false ; unloading breaks animations
+        ElseIf (!IsParentCellAttached(npc))
+            _animationIsApplied = false ; detaching breaks animations
             RegisterForFixup(8.0)
         EndIf
         _lastFixupRealTime = 0.0 ; reset on game load
@@ -81,7 +81,7 @@ Function ForceRefTo(ObjectReference akNewRef) ; override
         ; we will receive OnDeath event when NPC dies from now on, but they might already be dead
         If (npc.IsDead())
             Clear()
-        ElseIf (!npc.Is3DLoaded()) ; same for OnUnload
+        ElseIf (!IsParentCellAttached(npc)) ; same for OnCellDetach
             RegisterForFixup(8.0) ; reschedule
         EndIf
     EndIf
@@ -110,6 +110,7 @@ Function Clear() ; override
                 If (_helpless)
                     npc.RemoveFromFaction(npcTracker.Helpless)
                     ; restore ability to draw weapons by changing equipped weapons
+                    UnequipWeapons(npc)
                     npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
                     _hasDummyWeapon = true ; should already be true, but set it to be sure
                 EndIf
@@ -147,13 +148,13 @@ Event OnDeath(Actor akKiller)
 EndEvent
 
 
-Event OnLoad()
+Event OnCellAttach()
     RegisterForFixup(0.25) ; high priority
 EndEvent
 
 
-Event OnUnload()
-    _animationIsApplied = false ; unloading breaks animations
+Event OnCellDetach()
+    _animationIsApplied = false ; detaching breaks animations
     RegisterForFixup(8.0) ; the update will call Clear() if still not loaded
 EndEvent
 
@@ -190,15 +191,49 @@ Function HandleItemAddedRemoved(Form akBaseItem)
 EndFunction
 
 
+Event OnObjectEquipped(Form akBaseObject, ObjectReference akReference)
+    If (_useUnarmedCombatPackage)
+        Bool doUnequip = false
+        Armor equippedArmor = akBaseObject as Armor
+        If (equippedArmor != None)
+            If (!equippedArmor.IsShield())
+                Return
+            EndIf
+            doUnequip = true
+        EndIf
+        If (!doUnequip)
+            doUnequip = (akBaseObject as Spell) != None
+        EndIf
+        DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
+        If (!doUnequip)
+            Weapon equippiedWeapon = akBaseObject as Weapon
+            doUnequip = equippiedWeapon != None && equippiedWeapon != npcTracker.DummyWeapon
+        EndIf
+        If (doUnequip)
+            Actor npc = GetReference() as Actor
+            If (npc != None)
+                If (npcTracker.EnablePapyrusLogging)
+                    Debug.Trace("[DDNF] Unequip weapons of " + GetFormIdAsString(npc) + " " + npc.GetDisplayName() + " after " + GetFormIdAsString(akBaseObject) + " " + akBaseObject.GetName() + " was equipped.")
+                EndIf
+                If (!(UnequipWeapons(npc, npcTracker.DummyWeapon)))
+                    npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
+                    _hasDummyWeapon = true ; should already be true, but set it to be sure
+                EndIf
+            EndIf
+        EndIf
+    EndIf
+EndEvent
+
+
 Bool Function ModifiesAnimation(zadLibs ddLibs, Armor renderedDevice) Global
     ; basically the same logic as the one used to set the hasHeavyBondage/hasAnimation flags in FindAndAnalyzeRenderedDevices
     If (renderedDevice.GetEnchantment() != None)
         If (renderedDevice.HasKeyword(ddLibs.zad_DeviousHeavyBondage))
-			; heavy bondage device
+            ; heavy bondage device
             Return true
         EndIf
         If (renderedDevice.HasKeyword(ddLibs.zad_DeviousPonyGear) || renderedDevice.HasKeyword(ddLibs.zad_DeviousHobbleSkirt) && !renderedDevice.HasKeyword(ddLibs.zad_DeviousHobbleSkirtRelaxed))
-			; device other than heavy bondage that requires animation
+            ; device other than heavy bondage that requires animation
             Return true
         EndIf
     EndIf
@@ -212,8 +247,8 @@ Event OnCombatStateChanged(Actor akTarget, Int aeCombatState)
         If (npc != None)
             DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
             If (aeCombatState == 1)
-				UnequipWeapons(npc) ; combat override package will make sure NPC is only using unarmed combat
-            Else
+                UnequipWeapons(npc) ; combat override package will make sure NPC is only using unarmed combat
+            ElseIf (!UnequipWeapons(npc, npcTracker.DummyWeapon))
                 npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
                 _hasDummyWeapon = true ; should already be true, but set it to be sure
             EndIf
@@ -232,9 +267,10 @@ Event OnAnimationEvent(ObjectReference akSource, string asEventName)
     If (asEventName == "BeginWeaponDraw")
         If (_useUnarmedCombatPackage && (_helpless || npc.GetCombatState() != 1))
             DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
-            npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
-            _hasDummyWeapon = true ; should already be true, but set it to be sure
-            UnequipWeapons(npc, true) ; for some reason the game sometimes keeps equipment in the left hand even though DummyWeapon is two-handed
+            If (!UnequipWeapons(npc, npcTracker.DummyWeapon)) ; for some reason the game sometimes keeps equipment in the left hand even though DummyWeapon is two-handed
+                npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
+                _hasDummyWeapon = true ; should already be true, but set it to be sure
+            EndIf
             If (_helpless)
                 Debug.SendAnimationEvent(npc, "IdleForceDefaultState") ; black magic
                 npc.SheatheWeapon()
@@ -297,9 +333,9 @@ Function HandleItemAddedRemoved(Form akBaseItem)
             EndIf
             ; switch state
             String currentState = GetState() ; might have changed since start of call
-			If ((!_animationIsApplied || _animationNeedsRefresh) && currentState == "AliasOccupiedWaitingForQuickFixup")
+            If ((!_animationIsApplied || _animationNeedsRefresh) && currentState == "AliasOccupiedWaitingForQuickFixup")
                 GotoState("AliasOccupiedWaitingForFullFixup") ; like RegisterForFixup but without changing the registered update
-			ElseIf (currentState == "AliasOccupied")
+            ElseIf (currentState == "AliasOccupied")
                 RegisterForFixup()
             EndIf
         EndIf
@@ -329,7 +365,7 @@ Function RegisterForFixup(Float delay = 1.0) ; 1.0 is usually a good compromise 
     ; 1. if the player is currently modifying the NPCs inventory, the fixup will be done after the menu has been closed
     ; 2. if there are multiple reasons for a fixup in quick succession, the fixup will only run once
     ; 3. it is an async operation, so when the scanner calls ForceRefIfEmpty it does not have to wait for the fixup
-    
+
     If (_renderedDevicesFlags < 0 && (!_animationIsApplied || _animationNeedsRefresh))
         GotoState("AliasOccupiedWaitingForFullFixup")
     Else
@@ -350,9 +386,9 @@ Event OnUpdate()
         Return
     EndIf
     _fixupLock = true ; we know it is currently false
-    If (!npc.Is3DLoaded())
+    If (!IsParentCellAttached(npc))
         _fixupLock = false
-        _animationIsApplied = false ; probably already false from OnUnload()
+        _animationIsApplied = false ; probably already false from OnCellDetach()
         Clear()
         Return
     EndIf
@@ -390,12 +426,12 @@ Event OnUpdate()
         ; devices are not known, find and analyze them
         _renderedDevicesFlags = 0
         If (_renderedDevices.Length != 32) ; number of slots
-            _renderedDevices = new Armor[32] 
+            _renderedDevices = new Armor[32]
         EndIf
         renderedDevicesFlags = FindAndAnalyzeRenderedDevices(ddLibs, npcTracker.UseBoundCombat, npc, _renderedDevices)
         If (GetState() != "AliasOccupied")
             ; something has triggered a new fixup while we were finding and analysing devices
-            If (_renderedDevicesFlags != 0 || !npc.Is3DLoaded())
+            If (_renderedDevicesFlags != 0 || !IsParentCellAttached(npc))
                 ; devices have been added/removed or npc has been unloaded, abort
                 If (_renderedDevicesFlags == 0)
                     _renderedDevicesFlags = renderedDevicesFlags
@@ -452,8 +488,8 @@ Event OnUpdate()
         If (_hasAnimation && npc.IsWeaponDrawn())
             npc.SheatheWeapon()
         EndIf
-    EndIf        
-    
+    EndIf
+
     ; step two: unequip and reequip all rendered devices to restart the effects
     ; from this point on we need to abort and restart the fixup if something changes
     Int reequipBitmap = UnequipDevices(npc, _renderedDevices, devicesWithMagicalEffectCount)
@@ -462,6 +498,9 @@ Event OnUpdate()
         ReequipDevices(npc, _renderedDevices, reequipBitmap) ; even do this if current state has changed during UnequipDevices!
         Utility.Wait(0.017) ; give the game time to fully register the equips
         npc.UpdateWeight(0) ; workaround to force the game to correctly evaluate armor addon slots
+        If (enablePapyrusLogging)
+            Debug.Trace("[DDNF] Updated weight of " + formIdAndName + ".")
+        EndIf
     EndIf
     String currentState = GetState()
     If (_ignoreNotEquippedInNextFixup)
@@ -490,7 +529,7 @@ Event OnUpdate()
         EndIf
         Return
     EndIf
-        
+
     ; step three: handle weapons and animation effects
     If (hasAnimation)
         ; modifying animations will cause a weird state where the NPC cannot draw weapons if they are currently drawn
@@ -518,14 +557,16 @@ Event OnUpdate()
         _animationNeedsRefresh = false
     EndIf
     If (useUnarmedCombatPackage)
-        npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
-        UnequipWeapons(npc, true) ; for some reason the game sometimes keeps equipment in the left hand even though DummyWeapon is two-handed
+        If (!UnequipWeapons(npc, npcTracker.DummyWeapon))
+            npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
+            _hasDummyWeapon = true ; should already be true, but set it to be sure
+        EndIf
         RegisterForAnimationEvent(npc, "BeginWeaponDraw") ; register even if we think that we are already registered
     ElseIf (_useUnarmedCombatPackage)
         UnregisterForAnimationEvent(npc, "BeginWeaponDraw")
     EndIf
-	; almost done, so do not abort and reschedule if another fixup is scheduled, just let things run their normal course instead
-    
+    ; almost done, so do not abort and reschedule if another fixup is scheduled, just let things run their normal course instead
+
     ; step four: set state and adjust factions
     If (useUnarmedCombatPackage)
         If (!_useUnarmedCombatPackage)
@@ -554,6 +595,15 @@ Event OnUpdate()
         Debug.Trace("[DDNF] Succeeded fixing up devices of " + formIdAndName + ".")
     EndIf
 EndEvent
+
+
+;
+; Check if the parent cell of an actor is currently attached.
+;
+Bool Function IsParentCellAttached(Actor npc) Global
+    Cell parentCell = npc.GetParentCell()
+    Return parentCell != None && parentCell.IsAttached()
+EndFunction
 
 
 ;
@@ -745,46 +795,52 @@ Bool Function CheckDevicesEquipped(Actor npc, Armor[] renderedDevices, int bitma
 EndFunction
 
 
-Bool Function UnequipWeapons(Actor npc, Bool unequipLeftHandOnly = false) Global
+; returns true if ignoreWeapon was kept equipped
+Bool Function UnequipWeapons(Actor npc, Weapon ignoreWeapon = None) Global
     ; detect right hand weapon/spell (two-handed weapon counts as right hand)
-    Int itemType;
+    Int itemType
     Weapon rightHandWeapon = None
     Spell rightHandSpell = None
-    If (!unequipLeftHandOnly)
-        itemType = npc.GetEquippedItemType(1)
-        If (itemType == 9)
-            rightHandSpell = npc.GetEquippedSpell(1)
-        Else
-            rightHandWeapon = npc.GetEquippedWeapon(false)
-        EndIf
+    itemType = npc.GetEquippedItemType(1)
+    If (itemType == 9)
+        rightHandSpell = npc.GetEquippedSpell(1)
+    Else
+        rightHandWeapon = npc.GetEquippedWeapon(false)
     EndIf
     ; detect and unequip left-hand weapon/spell/shield
-    Bool unequipped = false
+    Bool keptIgnoreWeapon = false
     itemType = npc.GetEquippedItemType(0)
     If (itemType != 0)
         If (itemType == 9)
             Spell leftHandSpell = npc.GetEquippedSpell(0)
             npc.UnequipSpell(leftHandSpell, 0)
-            unequipped = true
         ElseIf (itemType == 10)
             Armor shield = npc.GetEquippedShield()
             npc.UnequipItem(shield, abSilent=true)
-            unequipped = true
         Else
             Weapon leftHandWeapon = npc.GetEquippedWeapon(true)
-            npc.UnequipItemEx(leftHandWeapon, equipSlot=0)
-            unequipped = true
+            If (ignoreWeapon == None)
+                npc.UnequipItemEx(leftHandWeapon, equipSlot=0)
+            ElseIf (leftHandWeapon != ignoreWeapon)
+                npc.UnequipItemEx(leftHandWeapon, equipSlot=0)
+            Else
+                keptIgnoreWeapon = true
+            EndIf
         EndIf
     EndIf
     ; unequip right-hand weapon/spell
     If (rightHandSpell != None)
         npc.UnequipSpell(rightHandSpell, 1)
-        unequipped = true
     ElseIf (rightHandWeapon != None)
-        npc.UnequipItemEx(rightHandWeapon, equipSlot=1)
-        unequipped = true
+        If (ignoreWeapon == None)
+            npc.UnequipItemEx(rightHandWeapon, equipSlot=1)
+        ElseIf (rightHandWeapon != ignoreWeapon)
+            npc.UnequipItemEx(rightHandWeapon, equipSlot=1)
+        Else
+            keptIgnoreWeapon = true
+        EndIf
     EndIf
-    Return unequipped
+    Return keptIgnoreWeapon
 EndFunction
 
 

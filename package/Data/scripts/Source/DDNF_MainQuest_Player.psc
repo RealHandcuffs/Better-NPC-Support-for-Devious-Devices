@@ -5,19 +5,19 @@ Scriptname DDNF_MainQuest_Player extends ReferenceAlias
 
 Formlist Property EmptyFormlist Auto
 
-String Property Version = "0.1 RC 3" AutoReadOnly
+String Property Version = "0.1" AutoReadOnly
 String _lastVersion
 
 
 Event OnInit()
     Debug.Notification("[BNSfDD] Installing: " + Version)
-    DDNF_MainQuest mainQuest = GetOwningQuest() as DDNF_MainQuest    
+    DDNF_MainQuest mainQuest = GetOwningQuest() as DDNF_MainQuest
     Bool enablePapyrusLogging = mainQuest.NpcTracker.EnablePapyrusLogging
     If (enablePapyrusLogging)
         Debug.Trace("[DDNF] Installing version " + Version + ".")
     EndIf
     HandleGameLoaded(true)
-    _lastVersion = Version    
+    _lastVersion = Version
     If (enablePapyrusLogging)
         Debug.Trace("[DDNF] Installation finished.")
     EndIf
@@ -26,7 +26,7 @@ EndEvent
 
 
 Event OnPlayerLoadGame()
-    DDNF_MainQuest mainQuest = GetOwningQuest() as DDNF_MainQuest    
+    DDNF_MainQuest mainQuest = GetOwningQuest() as DDNF_MainQuest
     Bool enablePapyrusLogging = mainQuest.NpcTracker.EnablePapyrusLogging
     If (_lastVersion == Version)
         HandleGameLoaded(false)
@@ -99,7 +99,7 @@ Event OnItemRemoved(Form akBaseItem, int aiItemCount, ObjectReference akItemRefe
     If (akActor != None && maybeInventoryDevice != None && maybeInventoryDevice.HasKeyword(npcTracker.DDLibs.zad_InventoryDevice) && !akActor.IsDead())
         ; player trying to equip device on NPC, wait until container menu is closed
         Int waitCount = 0
-        While (UI.IsMenuOpen("ContainerMenu") && waitCount < 20) 
+        While (UI.IsMenuOpen("ContainerMenu") && waitCount < 20)
             Utility.Wait(0.017)
             waitCount += 1 ; really only to prevent endless loop in case IsMenuOpen misbehaves
         EndWhile
