@@ -50,3 +50,7 @@ Version 0.2 beta 1
   * enabled/disable processing of NPCs (can be used to temporarily disable the mod)
   * frequency of NPC scanner (default: scan for NPCs every 8 seconds)
   * how fast to process NPCs (default: 3 NPCs every 3 seconds)​​​​​
+
+Version 0.2 beta 2
+- Optimizations after testing with Devious Devices 5.1
+- Add flag for papyrus logging to MCM  

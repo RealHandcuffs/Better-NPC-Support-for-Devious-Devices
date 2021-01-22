@@ -9,6 +9,8 @@ Int Property OptionNpcProcessingEnabled Auto
 Int Property OptionScannerFrequency Auto
 Int Property OptionMaxFixupsPerThreeSeconds Auto
 
+Int Property OptionEnablePapyrusLogging Auto
+
 
 Event OnPageReset(string page)
     SetCursorFillMode(TOP_TO_BOTTOM)
@@ -25,6 +27,9 @@ Event OnPageReset(string page)
     EndIf
     OptionScannerFrequency = AddSliderOption("Scan for NPCs every", MainQuest.SecondsBetweenScans, a_formatString = "{0} seconds", a_flags = flags)
     OptionMaxFixupsPerThreeSeconds = AddSliderOption("NPCs to process/3 seconds", MainQuest.NpcTracker.MaxFixupsPerThreeSeconds, a_flags = flags)
+
+    AddHeaderOption("Debug Settings")
+    OptionEnablePapyrusLogging = AddToggleOption("Enable Pyprus Logging", MainQuest.NpcTracker.EnablePapyrusLogging)
 EndEvent
 
 
@@ -36,13 +41,32 @@ Event OnOptionDefault(Int option)
             SetToggleOptionValue(OptionNpcProcessingEnabled, true)
             SetOptionFlags(OptionScannerFrequency, OPTION_FLAG_NONE, true)
             SetOptionFlags(OptionMaxFixupsPerThreeSeconds, OPTION_FLAG_NONE, false)
+            If (MainQuest.NpcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] MCM: Enabled NPC processing.")
+            EndIf
         EndIf
     ElseIf (option == OptionScannerFrequency)
-        MainQuest.SecondsBetweenScans = 8
-        SetSliderOptionValue(OptionScannerFrequency, 8, "{0} seconds")
+        If (MainQuest.SecondsBetweenScans != 8)
+            MainQuest.SecondsBetweenScans = 8
+            SetSliderOptionValue(OptionScannerFrequency, 8, "{0} seconds")
+            If (MainQuest.NpcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] MCM: Set scanner frequency to 8 seconds.")
+            EndIf
+        EndIf
     ElseIf (option == OptionMaxFixupsPerThreeSeconds)
-        MainQuest.NpcTracker.MaxFixupsPerThreeSeconds = 3
-        SetSliderOptionValue(OptionMaxFixupsPerThreeSeconds, 3)
+        If (MainQuest.NpcTracker.MaxFixupsPerThreeSeconds != 3)
+            MainQuest.NpcTracker.MaxFixupsPerThreeSeconds = 3
+            SetSliderOptionValue(OptionMaxFixupsPerThreeSeconds, 3)
+            If (MainQuest.NpcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] MCM: Set max fixups/3 seconds to 3.")
+            EndIf
+        EndIf
+    ElseIf (option == OptionEnablePapyrusLogging)
+        If (MainQuest.NpcTracker.EnablePapyrusLogging)
+            MainQuest.NpcTracker.EnablePapyrusLogging = false
+            SetToggleOptionValue(OptionEnablePapyrusLogging, false)
+            Debug.Trace("[DDNF] MCM: Disabled Papyrus logging.")
+        EndIf
     EndIf
 EndEvent
 
@@ -61,6 +85,21 @@ Event OnOptionSelect(Int option)
         SetToggleOptionValue(OptionNpcProcessingEnabled, !isRunning)
         SetOptionFlags(OptionScannerFrequency, flags, true)
         SetOptionFlags(OptionMaxFixupsPerThreeSeconds, flags, false)
+        If (MainQuest.NpcTracker.EnablePapyrusLogging)
+            If (isRunning)
+                Debug.Trace("[DDNF] MCM: Disabled NPC processing.")
+            Else
+                Debug.Trace("[DDNF] MCM: Enabled NPC processing.")
+            EndIf
+        EndIf
+    ElseIf (option == OptionEnablePapyrusLogging)
+        MainQuest.NpcTracker.EnablePapyrusLogging = !MainQuest.NpcTracker.EnablePapyrusLogging
+        SetToggleOptionValue(OptionEnablePapyrusLogging, MainQuest.NpcTracker.EnablePapyrusLogging)
+        If (MainQuest.NpcTracker.EnablePapyrusLogging)
+            Debug.Trace("[DDNF] MCM: Enabled Papyrus logging.")
+        Else
+            Debug.Trace("[DDNF] MCM: Disabled Papyrus logging.")
+        EndIf
     EndIf
 EndEvent
 
@@ -84,8 +123,14 @@ Event OnOptionSliderAccept(Int option, Float value)
     If (option == OptionScannerFrequency)
         MainQuest.SecondsBetweenScans = value
         SetSliderOptionValue(OptionScannerFrequency, value, "{0} seconds")
+        If (MainQuest.NpcTracker.EnablePapyrusLogging)
+            Debug.Trace("[DDNF] MCM: Set scanner frequency to " + MainQuest.SecondsBetweenScans + ".")
+        EndIf
     ElseIf (option == OptionMaxFixupsPerThreeSeconds)
         MainQuest.NpcTracker.MaxFixupsPerThreeSeconds = value
         SetSliderOptionValue(OptionMaxFixupsPerThreeSeconds, value)
+        If (MainQuest.NpcTracker.EnablePapyrusLogging)
+            Debug.Trace("[DDNF] MCM: Set max fixups/3 seconds to " + MainQuest.NpcTracker.MaxFixupsPerThreeSeconds + ".")
+        EndIf
     EndIf
 EndEvent
