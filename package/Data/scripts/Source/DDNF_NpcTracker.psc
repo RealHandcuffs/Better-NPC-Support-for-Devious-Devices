@@ -17,6 +17,8 @@ zadLibs Property DDLibs Auto
 Bool Property UseBoundCombat Auto
 Bool Property EnablePapyrusLogging Auto Conditional
 
+Float Property MaxFixupsPerThreeSeconds = 3.0 Auto
+
 Alias[] _cachedAliases ; performance optimization
 Int _attemptedFixupsInPeriod
 
@@ -152,12 +154,12 @@ EndFunction
 ; the returned number of seconds before attempting the fixup again.
 ;
 Float Function NeedToSlowDownBeforeFixup(Actor npc)
-    ; allow up to three fixups to start in a period of three seconds
+    ; allow up to (MaxFixupsPerThreeSeconds) fixups to start in a period of three seconds
     If (_attemptedFixupsInPeriod == 9999)
-        Return 3.0 ; onging update
+        Return 3 ; onging update
     EndIf
     _attemptedFixupsInPeriod += 1
-    If (_attemptedFixupsInPeriod <= 3)
+    If (_attemptedFixupsInPeriod <= MaxFixupsPerThreeSeconds)
         If (_attemptedFixupsInPeriod == 1)
             RegisterForSingleUpdate(3.0) ; a new three-second period is starting now
         EndIf
@@ -166,7 +168,7 @@ Float Function NeedToSlowDownBeforeFixup(Actor npc)
     If (npc.IsPlayerTeammate())
         Return 1.0 ; retry with high priority for player teammates
     EndIf
-    Return _attemptedFixupsInPeriod as Float ; backoff, wait longer if more fixups have been tried
+    Return ((_attemptedFixupsInPeriod as Float) / MaxFixupsPerThreeSeconds) * 3.0 ; backoff, wait longer if more fixups have been tried
 EndFunction
 
 

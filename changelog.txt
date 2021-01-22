@@ -44,3 +44,9 @@ Version 0.1 RC 3
 
 Version 0.1
 - Tweaks to improve weapon handling of bound NPCs.
+
+Version 0.2 beta 1
+- Add a simple MCM with the following options:
+  * enabled/disable processing of NPCs (can be used to temporarily disable the mod)
+  * frequency of NPC scanner (default: scan for NPCs every 8 seconds)
+  * how many NPCs to process (default: 3 NPCs every 3 seconds)
