@@ -110,6 +110,7 @@ Function Clear() ; override
                 If (_helpless)
                     npc.RemoveFromFaction(npcTracker.Helpless)
                     ; restore ability to draw weapons by changing equipped weapons
+                    UnequipWeapons(npc)
                     npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
                     _hasDummyWeapon = true ; should already be true, but set it to be sure
                 EndIf
@@ -190,15 +191,49 @@ Function HandleItemAddedRemoved(Form akBaseItem)
 EndFunction
 
 
+Event OnObjectEquipped(Form akBaseObject, ObjectReference akReference)
+    If (_useUnarmedCombatPackage)
+        Bool doUnequip = false
+        Armor equippedArmor = akBaseObject as Armor
+        If (equippedArmor != None)
+            If (!equippedArmor.IsShield())
+                Return
+            EndIf
+            doUnequip = true
+        EndIf
+        If (!doUnequip)
+            doUnequip = (akBaseObject as Spell) != None
+        EndIf
+        DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
+        If (!doUnequip)
+            Weapon equippiedWeapon = akBaseObject as Weapon
+            doUnequip = equippiedWeapon != None && equippiedWeapon != npcTracker.DummyWeapon
+        EndIf
+        If (doUnequip)
+            Actor npc = GetReference() as Actor
+            If (npc != None)
+                If (npcTracker.EnablePapyrusLogging)
+                    Debug.Trace("[DDNF] Unequip weapons of " + GetFormIdAsString(npc) + " " + npc.GetDisplayName() + " after " + GetFormIdAsString(akBaseObject) + " " + akBaseObject.GetName() + " was equipped.")
+                EndIf
+                If (!(UnequipWeapons(npc, npcTracker.DummyWeapon)))
+                    npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
+                    _hasDummyWeapon = true ; should already be true, but set it to be sure
+                EndIf
+            EndIf
+        EndIf
+    EndIf
+EndEvent
+
+
 Bool Function ModifiesAnimation(zadLibs ddLibs, Armor renderedDevice) Global
     ; basically the same logic as the one used to set the hasHeavyBondage/hasAnimation flags in FindAndAnalyzeRenderedDevices
     If (renderedDevice.GetEnchantment() != None)
         If (renderedDevice.HasKeyword(ddLibs.zad_DeviousHeavyBondage))
-			; heavy bondage device
+            ; heavy bondage device
             Return true
         EndIf
         If (renderedDevice.HasKeyword(ddLibs.zad_DeviousPonyGear) || renderedDevice.HasKeyword(ddLibs.zad_DeviousHobbleSkirt) && !renderedDevice.HasKeyword(ddLibs.zad_DeviousHobbleSkirtRelaxed))
-			; device other than heavy bondage that requires animation
+            ; device other than heavy bondage that requires animation
             Return true
         EndIf
     EndIf
@@ -212,8 +247,8 @@ Event OnCombatStateChanged(Actor akTarget, Int aeCombatState)
         If (npc != None)
             DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
             If (aeCombatState == 1)
-				UnequipWeapons(npc) ; combat override package will make sure NPC is only using unarmed combat
-            Else
+                UnequipWeapons(npc) ; combat override package will make sure NPC is only using unarmed combat
+            ElseIf (!UnequipWeapons(npc, npcTracker.DummyWeapon))
                 npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
                 _hasDummyWeapon = true ; should already be true, but set it to be sure
             EndIf
@@ -298,9 +333,9 @@ Function HandleItemAddedRemoved(Form akBaseItem)
             EndIf
             ; switch state
             String currentState = GetState() ; might have changed since start of call
-			If ((!_animationIsApplied || _animationNeedsRefresh) && currentState == "AliasOccupiedWaitingForQuickFixup")
+            If ((!_animationIsApplied || _animationNeedsRefresh) && currentState == "AliasOccupiedWaitingForQuickFixup")
                 GotoState("AliasOccupiedWaitingForFullFixup") ; like RegisterForFixup but without changing the registered update
-			ElseIf (currentState == "AliasOccupied")
+            ElseIf (currentState == "AliasOccupied")
                 RegisterForFixup()
             EndIf
         EndIf
@@ -330,7 +365,7 @@ Function RegisterForFixup(Float delay = 1.0) ; 1.0 is usually a good compromise 
     ; 1. if the player is currently modifying the NPCs inventory, the fixup will be done after the menu has been closed
     ; 2. if there are multiple reasons for a fixup in quick succession, the fixup will only run once
     ; 3. it is an async operation, so when the scanner calls ForceRefIfEmpty it does not have to wait for the fixup
-    
+
     If (_renderedDevicesFlags < 0 && (!_animationIsApplied || _animationNeedsRefresh))
         GotoState("AliasOccupiedWaitingForFullFixup")
     Else
@@ -391,7 +426,7 @@ Event OnUpdate()
         ; devices are not known, find and analyze them
         _renderedDevicesFlags = 0
         If (_renderedDevices.Length != 32) ; number of slots
-            _renderedDevices = new Armor[32] 
+            _renderedDevices = new Armor[32]
         EndIf
         renderedDevicesFlags = FindAndAnalyzeRenderedDevices(ddLibs, npcTracker.UseBoundCombat, npc, _renderedDevices)
         If (GetState() != "AliasOccupied")
@@ -453,8 +488,8 @@ Event OnUpdate()
         If (_hasAnimation && npc.IsWeaponDrawn())
             npc.SheatheWeapon()
         EndIf
-    EndIf        
-    
+    EndIf
+
     ; step two: unequip and reequip all rendered devices to restart the effects
     ; from this point on we need to abort and restart the fixup if something changes
     Int reequipBitmap = UnequipDevices(npc, _renderedDevices, devicesWithMagicalEffectCount)
@@ -494,7 +529,7 @@ Event OnUpdate()
         EndIf
         Return
     EndIf
-        
+
     ; step three: handle weapons and animation effects
     If (hasAnimation)
         ; modifying animations will cause a weird state where the NPC cannot draw weapons if they are currently drawn

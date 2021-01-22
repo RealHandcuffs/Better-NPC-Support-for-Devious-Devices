@@ -41,3 +41,6 @@ Version 0.1 RC 2
 
 Version 0.1 RC 3
 - Changes to improve compatibility with DDe (and possibly other mods that use non-standard ways of equipping and unequipping devices).
+
+Version 0.1
+- Tweaks to improve weapon handling of bound NPCs.
