@@ -54,3 +54,6 @@ Version 0.2 beta 1
 Version 0.2 beta 2
 - Optimizations after testing with Devious Devices 5.1
 - Add flag for papyrus logging to MCM  
+
+Version 0.2 beta 3
+- Some more small optimizations

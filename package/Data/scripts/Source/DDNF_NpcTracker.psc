@@ -69,7 +69,7 @@ EndFunction
 
 
 Function ValidateOptions()
-    Bool newUseBoundCombat = ddLibs.Config.UseBoundCombat
+    Bool newUseBoundCombat = DDLibs.Config.UseBoundCombat
     If (useBoundCombat != newUseBoundCombat)
         UseBoundCombat = newUseBoundCombat
         Int index = 0
@@ -139,8 +139,13 @@ Function HandleDeviceEquipped(Actor akActor, Armor inventoryDevice, Bool checkFo
             Armor renderedDevice = tempDevice.deviceRendered
             Keyword deviceKeyword = tempDevice.zad_DeviousDevice
             If (renderedDevice != None && deviceKeyword != None && akActor.GetItemCount(renderedDevice) == 0)
-                ; it's not equipped, equip it
-                DDLibs.EquipDevice(akActor, inventoryDevice, renderedDevice, deviceKeyword)
+                ; it's not equipped, equip it, but first recheck if inventory device has been removed
+                If (akActor.GetItemCount(inventoryDevice) > 0)
+                    If (EnablePapyrusLogging)
+                        Debug.Trace("[DDNF] Bug workaround: Equipping " + DDNF_NpcTracker_NPC.GetFormIdAsString(inventoryDevice) + " " + inventoryDevice.GetName() + " on " + DDNF_NpcTracker_NPC.GetFormIdAsString(akActor) + " " + akActor.GetDisplayName() + ".")
+                    EndIf
+                    DDLibs.LockDevice(akActor, inventoryDevice)
+                EndIf
             EndIf
         EndIf
         tempDevice.Delete()

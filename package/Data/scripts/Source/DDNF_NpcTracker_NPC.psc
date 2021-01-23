@@ -124,7 +124,7 @@ Function Clear() ; override
             Armor[] emptyArray
             _renderedDevices = emptyArray
             ; finally kick from alias
-            parent.Clear()
+            parent.Clear() ; will cause packages to change if necessary because they are attached to the alias
             If (npcTracker.EnablePapyrusLogging)
                 Debug.Trace("[DDNF] Stop tracking " + GetFormIdAsString(npc) + " " + npc.GetDisplayName() + ".")
             EndIf
@@ -145,6 +145,9 @@ Event OnCellAttach()
     RegisterForFixup(0.25) ; high priority
 EndEvent
 
+Event OnAttachedToCell()
+    RegisterForFixup(0.016) ; highest priority, usually caused NPCs following the player
+EndEvent
 
 Event OnCellDetach()
     _animationIsApplied = false ; detaching breaks animations
@@ -211,22 +214,6 @@ Event OnObjectEquipped(Form akBaseObject, ObjectReference akReference)
         EndIf
     EndIf
 EndEvent
-
-
-Bool Function ModifiesAnimation(zadLibs ddLibs, Armor renderedDevice) Global
-    ; basically the same logic as the one used to set the hasHeavyBondage/hasAnimation flags in FindAndAnalyzeRenderedDevices
-    If (renderedDevice.GetEnchantment() != None)
-        If (renderedDevice.HasKeyword(ddLibs.zad_DeviousHeavyBondage))
-            ; heavy bondage device
-            Return true
-        EndIf
-        If (renderedDevice.HasKeyword(ddLibs.zad_DeviousPonyGear) || renderedDevice.HasKeyword(ddLibs.zad_DeviousHobbleSkirt) && !renderedDevice.HasKeyword(ddLibs.zad_DeviousHobbleSkirtRelaxed))
-            ; device other than heavy bondage that requires animation
-            Return true
-        EndIf
-    EndIf
-    Return false
-EndFunction
 
 
 Event OnCombatStateChanged(Actor akTarget, Int aeCombatState)
@@ -517,6 +504,9 @@ Event OnUpdate()
                 ; restore ability to draw weapons by changing equipped weapons
                 UnequipWeapons(npc)
             EndIf
+        Else
+            ; un/reequipping devices can break the current idle and replace it with the default idle, restart the bound idle
+            Debug.SendAnimationEvent(npc, "IdleForceDefaultState")
         EndIf
     EndIf
     _animationIsApplied = true
@@ -533,23 +523,31 @@ Event OnUpdate()
     ; almost done, so do not abort and reschedule if another fixup is scheduled, just let things run their normal course instead
 
     ; step four: set state and adjust factions
+    Bool factionsModified = false
     If (useUnarmedCombatPackage)
         If (!_useUnarmedCombatPackage)
             _useUnarmedCombatPackage = true
             npc.SetFactionRank(npcTracker.UnarmedCombatants, 0)
+            factionsModified = true
         EndIf
     ElseIf (_useUnarmedCombatPackage)
         npc.RemoveFromFaction(npcTracker.UnarmedCombatants)
         _useUnarmedCombatPackage = false
+        factionsModified = true
     EndIf
     If (helpless)
         If (!_helpless)
             _helpless = true
             npc.SetFactionRank(npcTracker.Helpless, 0)
+            factionsModified = true
         EndIf
     ElseIf (_helpless)
         npc.RemoveFromFaction(npcTracker.Helpless)
         _helpless = false
+        factionsModified = true
+    EndIf
+    If (factionsModified)
+        npc.EvaluatePackage()
     EndIf
     _hasAnimation = hasAnimation
     _lastFixupRealTime = Utility.GetCurrentRealTime()
