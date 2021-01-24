@@ -10,6 +10,7 @@ Actor Property Player Auto
 Faction Property DeviceTargets Auto
 Faction Property Helpless Auto
 Faction Property UnarmedCombatants Auto
+FormList Property InterestingDevices Auto
 Keyword Property TrackingKeyword Auto
 Weapon Property DummyWeapon Auto
 zadLibs Property DDLibs Auto
@@ -47,6 +48,7 @@ Function HandleGameLoaded(Bool upgrade)
         Alias[] emptyArray
         _cachedAliases = emptyArray
     EndIf
+    RefreshInterestingDevices()
     ; notify all alias scripts
     Int index = 0
     Alias[] aliases = GetAliases()
@@ -62,6 +64,18 @@ Function HandleGameLoaded(Bool upgrade)
     EndIf
 EndFunction
 
+Function RefreshInterestingDevices()
+    InterestingDevices.Revert()
+    AddInterestingDevice("Pahe_Dwarven_Devious_suits.esp", 0x000801)
+    AddInterestingDevice("Pahe_Dwarven_Devious_suits.esp", 0x000805)
+EndFunction
+
+Function AddInterestingDevice(string fileName, Int formId)
+    Form renderedDevice = Game.GetFormFromFile(formId, fileName)
+    If (renderedDevice != None && renderedDevice.HasKeyword(DDLibs.zad_Lockable))
+        InterestingDevices.AddForm(renderedDevice)
+    EndIf
+EndFunction
 
 Function HandleJournalMenuClosed()
     ValidateOptions()

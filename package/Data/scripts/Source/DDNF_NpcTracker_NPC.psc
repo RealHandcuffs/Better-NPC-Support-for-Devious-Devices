@@ -397,7 +397,7 @@ Event OnUpdate()
         If (_renderedDevices.Length != 32) ; number of slots
             _renderedDevices = new Armor[32]
         EndIf
-        renderedDevicesFlags = FindAndAnalyzeRenderedDevices(ddLibs, npcTracker.UseBoundCombat, npc, _renderedDevices)
+        renderedDevicesFlags = FindAndAnalyzeRenderedDevices(ddLibs, npcTracker.InterestingDevices, npcTracker.UseBoundCombat, npc, _renderedDevices)
         If (GetState() != "AliasOccupied")
             ; something has triggered a new fixup while we were finding and analysing devices
             If (_renderedDevicesFlags != 0 || !IsParentCellAttached(npc))
@@ -578,19 +578,20 @@ EndFunction
 ; 512 - flag: helpless
 ; 1024 - flag: has animation
 ;
-Int Function FindAndAnalyzeRenderedDevices(zadLibs ddLibs, Bool useBoundCombat, Actor npc, Armor[] renderedDevices) Global
+Int Function FindAndAnalyzeRenderedDevices(zadLibs ddLibs, FormList interestingDevices, Bool useBoundCombat, Actor npc, Armor[] renderedDevices) Global
     ; find devices
     Keyword zadLockable = ddLibs.zad_Lockable
     Int bottomIndex = 0
     Int topIndex = renderedDevices.Length
     Int index = 0
     Int count = npc.GetNumItems()
+    Bool hasInterestingDevices = npc.GetItemCount(interestingDevices) > 0
     While (index < count && bottomIndex < topIndex)
         Armor maybeRenderedDevice = npc.GetNthForm(index) as Armor
         If (maybeRenderedDevice != None && maybeRenderedDevice.HasKeyword(zadLockable))
             ; found a rendered device
-            If (maybeRenderedDevice.GetEnchantment() == None)
-                ; put devices without magical effect temporarily at top of array
+            If (maybeRenderedDevice.GetEnchantment() == None && (!hasInterestingDevices || !interestingDevices.HasForm(maybeRenderedDevice)))
+                ; put devices without magical effect (and also not in "interesting devices" formlist) temporarily at top of array
                 topIndex -= 1
                 renderedDevices[topIndex] = maybeRenderedDevice
             Else
@@ -617,7 +618,8 @@ Int Function FindAndAnalyzeRenderedDevices(zadLibs ddLibs, Bool useBoundCombat, 
         index += 1
     EndWhile
     ; analyze devices, but only the ones with magical effect
-    ; (assumption: devices without magical effects have none of the special effect DD keywords that we are interested in)
+    ; (assumption: devices without magical effects have none of the special effect DD keywords that we are interested in;
+    ;              devices that do not follow this assumption will still be analyzed if they are in the "interesting devices" form list)
     Bool useUnarmedCombatPackage = false
     Bool hasHeavyBondage = false
     Bool disableKick = !useBoundCombat
