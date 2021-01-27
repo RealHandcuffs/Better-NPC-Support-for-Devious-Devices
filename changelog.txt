@@ -58,5 +58,5 @@ Version 0.2 beta 2
 Version 0.2 beta 3
 - Some more small optimizations
 
-Version 0.2 beta 4
+Version 0.2
 - Support pahe dwemer slave suit and dwemer pet suit as a soft-dependency (they needed special handling)
