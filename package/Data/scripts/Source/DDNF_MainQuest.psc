@@ -15,7 +15,7 @@ Scriptname DDNF_MainQuest extends Quest
 Quest Property NpcScanner Auto
 DDNF_NpcTracker Property NpcTracker Auto
 
-Float Property SecondsBetweenScans = 10.0 AutoReadOnly ; could also live in a config menu...
+Float Property SecondsBetweenScans = 8.0 Auto
 
 Alias[] _cachedScannerAliases ; performance optimization
 

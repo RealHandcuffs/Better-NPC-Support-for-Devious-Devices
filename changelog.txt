@@ -44,3 +44,19 @@ Version 0.1 RC 3
 
 Version 0.1
 - Tweaks to improve weapon handling of bound NPCs.
+
+Version 0.2 beta 1
+- Add a simple MCM with the following options:
+  * enabled/disable processing of NPCs (can be used to temporarily disable the mod)
+  * frequency of NPC scanner (default: scan for NPCs every 8 seconds)
+  * how fast to process NPCs (default: 3 NPCs every 3 seconds)​​​​​
+
+Version 0.2 beta 2
+- Optimizations after testing with Devious Devices 5.1
+- Add flag for papyrus logging to MCM
+
+Version 0.2 beta 3
+- Some more small optimizations
+
+Version 0.2
+- Support pahe dwemer slave suit and dwemer pet suit as a soft-dependency (they needed special handling)
