@@ -60,3 +60,7 @@ Version 0.2 beta 3
 
 Version 0.2
 - Support pahe dwemer slave suit and dwemer pet suit as a soft-dependency (they needed special handling)
+
+Version 0.3 beta 1
+- Add option to fix the NPC under the crosshair to MCM
+- Optimization: Change handling of animations, should now recognize when animations are still applied after loading screen and not re-apply them

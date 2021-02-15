@@ -10,6 +10,7 @@ Int Property OptionScannerFrequency Auto
 Int Property OptionMaxFixupsPerThreeSeconds Auto
 
 Int Property OptionEnablePapyrusLogging Auto
+Int Property OptionFixupOnMenuClose Auto
 
 
 Event OnPageReset(string page)
@@ -30,6 +31,11 @@ Event OnPageReset(string page)
 
     AddHeaderOption("Debug Settings")
     OptionEnablePapyrusLogging = AddToggleOption("Enable Pyprus Logging", MainQuest.NpcTracker.EnablePapyrusLogging)
+    Actor cursorActor = Game.GetCurrentCrosshairRef() as Actor
+    If (cursorActor != None)
+        AddTextOption("NPC under crosshair", DDNF_NpcTracker_NPC.GetFormIdAsString(cursorActor))
+        OptionFixupOnMenuClose = AddToggleOption("Queue fixup on menu close", false, a_flags = flags)
+    EndIf
 EndEvent
 
 
@@ -99,6 +105,17 @@ Event OnOptionSelect(Int option)
             Debug.Trace("[DDNF] MCM: Enabled Papyrus logging.")
         Else
             Debug.Trace("[DDNF] MCM: Disabled Papyrus logging.")
+        EndIf
+    ElseIf (option == OptionFixupOnMenuClose)
+        Actor cursorActor = Game.GetCurrentCrosshairRef() as Actor
+        If (cursorActor == None)
+            SetToggleOptionValue(OptionFixupOnMenuClose, false)
+        Else
+            If (MainQuest.NpcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] MCM: Requested fixup of " + DDNF_NpcTracker_NPC.GetFormIdAsString(cursorActor) + " " + cursorActor.GetDisplayName() + ".")
+            EndIf
+            SetToggleOptionValue(OptionFixupOnMenuClose, true)
+            MainQuest.NpcTracker.QueueForFixup(cursorActor)
         EndIf
     EndIf
 EndEvent

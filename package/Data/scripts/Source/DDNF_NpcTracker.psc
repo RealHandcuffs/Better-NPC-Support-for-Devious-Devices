@@ -95,6 +95,25 @@ Function ValidateOptions()
     EndIf
 EndFunction
 
+;
+; Queue a NPC for fixup. This will add the NPC to the tracked NPCs if necessary.
+;
+Bool Function QueueForFixup(Actor npc)
+    If (npc.HasKeyword(TrackingKeyword))
+        Int index = 0
+        Alias[] aliases = GetAliases()
+        While (index < aliases.Length)
+            ReferenceAlias refAlias = aliases[index] as ReferenceAlias
+            If (refAlias.GetReference() == npc)
+                (refAlias as DDNF_NpcTracker_NPC).OnCellDetach()
+                (refAlias as DDNF_NpcTracker_NPC).OnCellAttach()
+                Return true
+            EndIf
+            index += 1
+        EndWhile
+    EndIf
+    Return Add(npc)
+EndFunction
 
 ;
 ; Add a NPC to the tracked NPCs.

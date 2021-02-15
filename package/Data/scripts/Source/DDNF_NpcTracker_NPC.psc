@@ -18,7 +18,6 @@ Bool _hasDummyWeapon
 ; variables tracking state of script
 ; there is also a script state, so this is not the whole picture
 Bool _ignoreNotEquippedInNextFixup
-Bool _animationIsApplied
 Bool _fixupLock
 Float _lastFixupRealTime
 
@@ -34,9 +33,8 @@ Function HandleGameLoaded(Bool upgrade)
         ; also clear if NPC is dead (safety check in case OnDeath was missed somehow)
         If (upgrade || npc.IsDead())
             Clear()
-        ; also do a safety check in case OnUnload was missed somehow
+        ; also do a safety check in case OnCellDetach was missed somehow
         ElseIf (!IsParentCellAttached(npc))
-            _animationIsApplied = false ; detaching breaks animations
             RegisterForFixup(8.0)
         EndIf
         _lastFixupRealTime = 0.0 ; reset on game load
@@ -71,7 +69,6 @@ Function ForceRefTo(ObjectReference akNewRef) ; override
         _hasAnimation = false
         _hasDummyWeapon = npc.GetItemCount(npcTracker.DummyWeapon) > 0
         _ignoreNotEquippedInNextFixup = false
-        _animationIsApplied = false ; safe default, might be wrong
         _fixupLock = false
         _lastFixupRealTime = 0.0
         RegisterForFixup()
@@ -142,15 +139,14 @@ EndEvent
 
 
 Event OnCellAttach()
-    RegisterForFixup(0.25) ; high priority
+    RegisterForFixup()
 EndEvent
 
 Event OnAttachedToCell()
-    RegisterForFixup(0.016) ; highest priority, usually caused NPCs following the player
+    RegisterForFixup()
 EndEvent
 
 Event OnCellDetach()
-    _animationIsApplied = false ; detaching breaks animations
     RegisterForFixup(8.0) ; the update will call Clear() if still not loaded
 EndEvent
 
@@ -175,7 +171,7 @@ Function HandleItemAddedRemoved(Form akBaseItem)
             zadLibs ddLibs = npcTracker.DDLibs
             If (maybeArmor.HasKeyword(ddLibs.zad_Lockable))
                 ; a device has been added or removed, we need to rescan for devices
-                _renderedDevicesFlags = -1 ; dd framework will update the animation, we don't need to do it ourselves
+                _renderedDevicesFlags = -1
             EndIf
         EndIf
         RegisterForFixup()
@@ -223,7 +219,7 @@ Event OnCombatStateChanged(Actor akTarget, Int aeCombatState)
             DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
             If (aeCombatState == 1)
                 UnequipWeapons(npc) ; combat override package will make sure NPC is only using unarmed combat
-            ElseIf (!UnequipWeapons(npc, npcTracker.DummyWeapon) && npc.GetItemCount(npcTracker.DummyWeapon))
+            ElseIf (!UnequipWeapons(npc, npcTracker.DummyWeapon) && npc.GetItemCount(npcTracker.DummyWeapon) > 0)
                 npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
             EndIf
         EndIf
@@ -241,7 +237,7 @@ Event OnAnimationEvent(ObjectReference akSource, string asEventName)
     If (asEventName == "BeginWeaponDraw")
         If (_useUnarmedCombatPackage && (_helpless || npc.GetCombatState() != 1))
             DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
-            If (!UnequipWeapons(npc, npcTracker.DummyWeapon) && npc.GetItemCount(npcTracker.DummyWeapon)) ; for some reason the game sometimes keeps equipment in the left hand even though DummyWeapon is two-handed
+            If (!UnequipWeapons(npc, npcTracker.DummyWeapon) && npc.GetItemCount(npcTracker.DummyWeapon) > 0) ; for some reason the game sometimes keeps equipment in the left hand even though DummyWeapon is two-handed
                 npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
             EndIf
             If (_helpless)
@@ -288,29 +284,8 @@ State AliasOccupied
 EndState
 
 
-; change handling of some events when reference alias is occupied and script is waiting for quick fixup
+; handle all events when reference alias is occupied and script is waiting for quick fixup
 State AliasOccupiedWaitingForQuickFixup
-
-Function HandleItemAddedRemoved(Form akBaseItem)
-    Actor npc = GetReference() as Actor
-    Armor maybeArmor = akBaseItem as Armor
-    If (npc != None && maybeArmor != None)
-        DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
-        zadLibs ddLibs = npcTracker.DDLibs
-        If (maybeArmor.HasKeyword(ddLibs.zad_Lockable))
-            ; a device has been added or removed, we need to rescan for devices
-            _renderedDevicesFlags = -1 ; dd framework will update the animation, we don't need to do it ourselves
-            ; switch state
-            String currentState = GetState() ; might have changed since start of call
-            If (!_animationIsApplied && currentState == "AliasOccupiedWaitingForQuickFixup")
-                GotoState("AliasOccupiedWaitingForFullFixup") ; like RegisterForFixup but without changing the registered update
-            ElseIf (currentState == "AliasOccupied")
-                RegisterForFixup()
-            EndIf
-        EndIf
-    EndIf
-EndFunction
-
 EndState
 
 
@@ -335,7 +310,7 @@ Function RegisterForFixup(Float delay = 1.0) ; 1.0 is usually a good compromise 
     ; 2. if there are multiple reasons for a fixup in quick succession, the fixup will only run once
     ; 3. it is an async operation, so when the scanner calls ForceRefIfEmpty it does not have to wait for the fixup
 
-    If (_renderedDevicesFlags < 0 && !_animationIsApplied)
+    If (_renderedDevicesFlags < 0)
         GotoState("AliasOccupiedWaitingForFullFixup")
     Else
         GotoState("AliasOccupiedWaitingForQuickFixup")
@@ -357,7 +332,6 @@ Event OnUpdate()
     _fixupLock = true ; we know it is currently false
     If (!IsParentCellAttached(npc))
         _fixupLock = false
-        _animationIsApplied = false ; probably already false from OnCellDetach()
         Clear()
         Return
     EndIf
@@ -492,24 +466,31 @@ Event OnUpdate()
 
     ; step three: handle weapons and animation effects
     If (hasAnimation)
-        If (!_animationIsApplied)
+        zadBoundCombatScript boundCombat = ddLibs.BoundCombat
+        Int fnisAaMtIdleCrc = npc.GetAnimationVariableInt("FNISaa_mtidle_crc")
+        Bool animationIsApplied = false
+        If (npc.GetAnimationVariableInt("FNISaa_mtidle_crc") == fnis_aa.GetInstallationCRC())
+             ; use _mtidle animation to check if animations are applied
+            Int fnisAaMtIdle = npc.GetAnimationVariableInt("FNISaa_mtidle")
+            animationIsApplied = IsInFnisGroup(fnisAaMtIdle, boundCombat.ABC_mtidle) || IsInFnisGroup(fnisAaMtIdle, boundCombat.HBC_mtidle) || IsInFnisGroup(fnisAaMtIdle, boundCombat.PON_mtidle)
+        EndIf
+        If (animationIsApplied)
+            ; un/reequipping devices can break the current idle and replace it with the default idle, restart the bound idle
+            Debug.SendAnimationEvent(npc, "IdleForceDefaultState")
+        Else
             If (enablePapyrusLogging)
                 Debug.Trace("[DDNF] Reevaluating animations of " + formIdAndName + ".")
             EndIf
             ; modifying animations will cause a weird state where the NPC cannot draw weapons if they are currently drawn
             ; this can be reverted by changing the equipped weapons of the npc
             Bool restoreWeaponAccess = !helpless && npc.IsWeaponDrawn()
-            ddLibs.BoundCombat.EvaluateAA(npc) ; very expensive call
+            boundCombat.EvaluateAA(npc) ; very expensive call
             If (restoreWeaponAccess)
                 ; restore ability to draw weapons by changing equipped weapons
                 UnequipWeapons(npc)
             EndIf
-        Else
-            ; un/reequipping devices can break the current idle and replace it with the default idle, restart the bound idle
-            Debug.SendAnimationEvent(npc, "IdleForceDefaultState")
         EndIf
     EndIf
-    _animationIsApplied = true
     If (useUnarmedCombatPackage)
         If (!UnequipWeapons(npc, npcTracker.DummyWeapon))
             npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
@@ -568,6 +549,12 @@ Bool Function IsParentCellAttached(Actor npc) Global
     Return parentCell != None && parentCell.IsAttached()
 EndFunction
 
+;
+; Check if an animation variable is in the range of a FNIS group.
+;
+Bool Function IsInFnisGroup(Int animationVariable, Int groupBaseValue) Global
+    Return animationVariable >= groupBaseValue && animationVariable <= groupBaseValue + 9
+EndFunction
 
 ;
 ; Fills the renderedDevices array with the rendered devices of the actor, starting from index 0.
