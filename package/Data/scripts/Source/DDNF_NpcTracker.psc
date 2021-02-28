@@ -177,6 +177,19 @@ Function HandleDeviceEquipped(Actor akActor, Armor inventoryDevice, Bool checkFo
                     If (EnablePapyrusLogging)
                         Debug.Trace("[DDNF] Bug workaround: Equipping " + DDNF_NpcTracker_NPC.GetFormIdAsString(inventoryDevice) + " " + inventoryDevice.GetName() + " on " + DDNF_NpcTracker_NPC.GetFormIdAsString(akActor) + " " + akActor.GetDisplayName() + ".")
                     EndIf
+                    ; sometimes items become "corrupt" and the game will lose the script
+                    ; dropping the item may or may not help
+                    ObjectReference item = akActor.DropObject(inventoryDevice)
+                    If ((item as zadEquipScript) == None)
+                        If (EnablePapyrusLogging)
+                            Debug.Trace("[DDNF] Replacing corrupt device " + DDNF_NpcTracker_NPC.GetFormIdAsString(item) + ".")
+                        EndIf
+                        item.DisableNoWait()
+                        item.Delete()
+                        akActor.AddItem(inventoryDevice, 1, true)
+                    Else
+                        akActor.AddItem(item, 1, true)
+                    EndIf
                     DDLibs.LockDevice(akActor, inventoryDevice)
                 EndIf
             EndIf

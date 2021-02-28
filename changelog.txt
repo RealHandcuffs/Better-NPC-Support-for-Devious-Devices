@@ -64,3 +64,11 @@ Version 0.2
 Version 0.3 beta 1
 - Add option to fix the NPC under the crosshair to MCM
 - Optimization: Change handling of animations, should now recognize when animations are still applied after loading screen and not re-apply them
+
+Version 0.3 beta 2
+- Improve the fix for corrupt devices (devices sometimes get "bad" when they are stored in a container for a long time)
+- Detect rendered devices being unequipped while NPC is loaded and try to fix the issue
+- Prevent prisoners from using bound combat even if not wearing fetters (use membership in dunPrisonerFaction)
+
+Version 0.3 beta 3
+- Change handling of dummy weapon to prevent bug causing all equipped items to be unequipped
