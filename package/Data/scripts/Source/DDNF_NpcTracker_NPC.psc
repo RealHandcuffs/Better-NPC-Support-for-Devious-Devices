@@ -162,14 +162,22 @@ Function HandleItemAddedRemoved(Form akBaseItem)
     DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
     If (npc != None && akBaseItem != npcTracker.DummyWeapon) ; we take care to add/remove DummyWeapon only in situations where it cannot break devices
         Armor maybeArmor = akBaseItem as Armor
+        Float delayOverride = -1
         If (maybeArmor != None)
             zadLibs ddLibs = npcTracker.DDLibs
             If (maybeArmor.HasKeyword(ddLibs.zad_Lockable))
                 ; a device has been added or removed, we need to rescan for devices
                 _renderedDevicesFlags = -1
+                delayOverride = 2 ; give DD library more time to process the change
+            ElseIf (maybeArmor.HasKeyword(ddLibs.zad_InventoryDevice))
+                delayOverride = 2 ; give DD library more time to process the change
             EndIf
         EndIf
-        RegisterForFixup()
+        If (delayOverride >= 0)
+            RegisterForFixup(delayOverride)
+        Else
+            RegisterForFixup()
+        EndIf
     EndIf
 EndFunction
 

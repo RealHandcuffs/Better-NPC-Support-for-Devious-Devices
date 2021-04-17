@@ -72,3 +72,6 @@ Version 0.3 beta 2
 
 Version 0.3 beta 3
 - Change handling of dummy weapon to prevent bug causing all equipped items to be unequipped
+
+Version 0.3 beta 4
+- Slightly increase delay after devices are added/removed to prevent race conditions with DD (could lead to lost animations e.g. after adding gags, or removed devices staying visually applied)
