@@ -272,16 +272,44 @@ Event OnAnimationEvent(ObjectReference akSource, string asEventName)
 EndEvent
 
 
+Event OnPackageStart(Package akNewPackage)
+    DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
+    If (akNewPackage != npcTracker.BoundCombatNPCSandbox && akNewPackage != npcTracker.BoundNPCSandbox)
+        Package template = akNewPackage.GetTemplate()
+        If (template == npcTracker.Sandbox)
+            Actor npc = GetReference() as Actor
+            If (npc != None && IsParentCellAttached(npc) && (npc.WornHasKeyword(npcTracker.DDLibs.zad_DeviousHeavyBondage) || npc.WornHasKeyword(npcTracker.DDLibs.zad_DeviousHobbleSkirt)))
+                ; bound npc switched to sandbox package (other than DD sandbox packages), check if we can kick them out of it again
+                If (npcTracker.EnablePapyrusLogging)
+                    Debug.Trace("[DDNF] Trying to kick " + GetFormIdAsString(npc) + " " + npc.GetDisplayName() + " out of sandboxing package.")
+                EndIf
+                ActorBase npcBase = npc.GetActorBase()
+                If (npcBase == Game.GetFormFromFile(0x002B6C, "Dawnguard.esm")) ; DLC1Serana
+                    ; Serana's AI is different than that of any other follower, so the DD npc slots are not working
+                    DDNF_DLC1Shim.KickSeranaFromSandboxPackage(npc)
+                Else
+                    ; Let DD slots apply the bound sandbox package
+                    npcTracker.DDLibs.RepopulateNpcs()
+                EndIf
+            EndIf
+        EndIf
+    EndIf
+EndEvent
+
+
 ; stop handling events when reference alias is empty
 Auto State AliasEmpty
 
 Event OnDeath(Actor akKiller)
 EndEvent
 
-Event OnLoad()
+Event OnCellAttach()
 EndEvent
 
-Event OnUnload()
+Event OnAttachedToCell()
+EndEvent
+
+Event OnCellDetach()
 EndEvent
 
 Event OnItemAdded(Form akBaseItem, int aiItemCount, ObjectReference akItemReference, ObjectReference akSourceContainer)
@@ -300,6 +328,9 @@ Event OnCombatStateChanged(Actor akTarget, Int aeCombatState)
 EndEvent
 
 Event OnAnimationEvent(ObjectReference akSource, string asEventName)
+EndEvent
+
+Event OnPackageStart(Package akNewPackage)
 EndEvent
 
 EndState
@@ -376,6 +407,22 @@ Event OnUpdate()
         _fixupLock = false
         Clear()
         Return
+    EndIf
+    If (npcTracker.RestoreOriginalOutfit)
+        ActorBase npcBase = npc.GetActorBase()
+        If (npcBase.IsUnique())
+            Outfit originalOutfit = StorageUtil.GetFormValue(npcBase, "zad_OriginalOutfit") as Outfit
+            If (originalOutfit != None)
+                If (enablePapyrusLogging)
+                    Debug.Trace("[DDNF] Restoring original outfit of " + formIdAndName + " and rescheduling fixup.")
+                EndIf
+                npc.SetOutfit(originalOutfit, false)
+                StorageUtil.UnSetFormValue(npcBase, "zad_OriginalOutfit")
+                _fixupLock = false
+                RegisterForFixup()
+                Return
+            EndIf
+        EndIf
     EndIf
     Float timeSinceLastFixup = Utility.GetCurrentRealTime() - _lastFixupRealTime
     If (timeSinceLastFixup < 5.0)
@@ -574,6 +621,9 @@ Event OnUpdate()
     ; done
     If (enablePapyrusLogging)
         Debug.Trace("[DDNF] Succeeded fixing up devices of " + formIdAndName + ".")
+    EndIf
+    If (_hasAnimation)
+        OnPackageStart(npc.GetCurrentPackage())
     EndIf
 EndEvent
 

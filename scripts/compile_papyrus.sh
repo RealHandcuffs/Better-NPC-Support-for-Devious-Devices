@@ -74,7 +74,7 @@ function compile_folder() {
   for f in $(ls -1a *.psc)
   do
     files+=( "$f" )
-    "$DIR_SKYRIM_CREATION_KIT/Papyrus Compiler/PapyrusCompiler.exe" "$f" -optimize -quiet -flags="$(cygpath -w "$PAPYRUS_SOURCE/TESV_Papyrus_Flags.flg")" -import="$(cygpath -w "$PAPYRUS_SOURCE")" -output="$(cygpath -w "$BASE_DIR/build/$1")" &
+    "$DIR_SKYRIM_CREATION_KIT/Papyrus Compiler/PapyrusCompiler.exe" "$f" -optimize -quiet -flags="$(cygpath -w "$PAPYRUS_SOURCE/TESV_Papyrus_Flags.flg")" -import="$(cygpath -w "$PAPYRUS_SOURCE");$(cygpath -w "$PAPYRUS_SOURCE/Dawnguard")" -output="$(cygpath -w "$BASE_DIR/build/$1")" &
     pids+=( "$!" )
   done
   failures=()

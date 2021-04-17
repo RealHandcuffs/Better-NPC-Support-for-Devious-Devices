@@ -12,11 +12,15 @@ Faction Property Helpless Auto
 Faction Property UnarmedCombatants Auto
 FormList Property InterestingDevices Auto
 Keyword Property TrackingKeyword Auto
+Package Property Sandbox Auto
+Package Property BoundCombatNPCSandbox Auto
+Package Property BoundNPCSandbox Auto
 Weapon Property DummyWeapon Auto
 zadLibs Property DDLibs Auto
 
 Bool Property UseBoundCombat Auto
 Bool Property EnablePapyrusLogging Auto Conditional
+Bool Property RestoreOriginalOutfit Auto
 
 Float Property MaxFixupsPerThreeSeconds = 3.0 Auto
 
