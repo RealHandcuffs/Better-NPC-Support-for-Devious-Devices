@@ -79,3 +79,6 @@ Version 0.3 beta 4
 Version 0.3 beta 5
 - Try to prevent bound NPCs from sandboxing (most of this depends on DD NPC slots being enabled and available)
 - Add option to restore original outfit of NPCs after DD replaced it with empty outfit (false by default)
+
+Version 0.3
+- No changes, same as 0.3 beta 5 other than version number.
