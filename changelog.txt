@@ -60,3 +60,25 @@ Version 0.2 beta 3
 
 Version 0.2
 - Support pahe dwemer slave suit and dwemer pet suit as a soft-dependency (they needed special handling)
+
+Version 0.3 beta 1
+- Add option to fix the NPC under the crosshair to MCM
+- Optimization: Change handling of animations, should now recognize when animations are still applied after loading screen and not re-apply them
+
+Version 0.3 beta 2
+- Improve the fix for corrupt devices (devices sometimes get "bad" when they are stored in a container for a long time)
+- Detect rendered devices being unequipped while NPC is loaded and try to fix the issue
+- Prevent prisoners from using bound combat even if not wearing fetters (use membership in dunPrisonerFaction)
+
+Version 0.3 beta 3
+- Change handling of dummy weapon to prevent bug causing all equipped items to be unequipped
+
+Version 0.3 beta 4
+- Slightly increase delay after devices are added/removed to prevent race conditions with DD (could lead to lost animations e.g. after adding gags, or removed devices staying visually applied)
+
+Version 0.3 beta 5
+- Try to prevent bound NPCs from sandboxing (most of this depends on DD NPC slots being enabled and available)
+- Add option to restore original outfit of NPCs after DD replaced it with empty outfit (false by default)
+
+Version 0.3
+- No changes, same as 0.3 beta 5 other than version number.

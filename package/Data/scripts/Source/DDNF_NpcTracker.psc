@@ -12,11 +12,15 @@ Faction Property Helpless Auto
 Faction Property UnarmedCombatants Auto
 FormList Property InterestingDevices Auto
 Keyword Property TrackingKeyword Auto
+Package Property Sandbox Auto
+Package Property BoundCombatNPCSandbox Auto
+Package Property BoundNPCSandbox Auto
 Weapon Property DummyWeapon Auto
 zadLibs Property DDLibs Auto
 
 Bool Property UseBoundCombat Auto
 Bool Property EnablePapyrusLogging Auto Conditional
+Bool Property RestoreOriginalOutfit Auto
 
 Float Property MaxFixupsPerThreeSeconds = 3.0 Auto
 
@@ -95,6 +99,25 @@ Function ValidateOptions()
     EndIf
 EndFunction
 
+;
+; Queue a NPC for fixup. This will add the NPC to the tracked NPCs if necessary.
+;
+Bool Function QueueForFixup(Actor npc)
+    If (npc.HasKeyword(TrackingKeyword))
+        Int index = 0
+        Alias[] aliases = GetAliases()
+        While (index < aliases.Length)
+            ReferenceAlias refAlias = aliases[index] as ReferenceAlias
+            If (refAlias.GetReference() == npc)
+                (refAlias as DDNF_NpcTracker_NPC).OnCellDetach()
+                (refAlias as DDNF_NpcTracker_NPC).OnCellAttach()
+                Return true
+            EndIf
+            index += 1
+        EndWhile
+    EndIf
+    Return Add(npc)
+EndFunction
 
 ;
 ; Add a NPC to the tracked NPCs.
@@ -157,6 +180,19 @@ Function HandleDeviceEquipped(Actor akActor, Armor inventoryDevice, Bool checkFo
                 If (akActor.GetItemCount(inventoryDevice) > 0)
                     If (EnablePapyrusLogging)
                         Debug.Trace("[DDNF] Bug workaround: Equipping " + DDNF_NpcTracker_NPC.GetFormIdAsString(inventoryDevice) + " " + inventoryDevice.GetName() + " on " + DDNF_NpcTracker_NPC.GetFormIdAsString(akActor) + " " + akActor.GetDisplayName() + ".")
+                    EndIf
+                    ; sometimes items become "corrupt" and the game will lose the script
+                    ; dropping the item may or may not help
+                    ObjectReference item = akActor.DropObject(inventoryDevice)
+                    If ((item as zadEquipScript) == None)
+                        If (EnablePapyrusLogging)
+                            Debug.Trace("[DDNF] Replacing corrupt device " + DDNF_NpcTracker_NPC.GetFormIdAsString(item) + ".")
+                        EndIf
+                        item.DisableNoWait()
+                        item.Delete()
+                        akActor.AddItem(inventoryDevice, 1, true)
+                    Else
+                        akActor.AddItem(item, 1, true)
                     EndIf
                     DDLibs.LockDevice(akActor, inventoryDevice)
                 EndIf

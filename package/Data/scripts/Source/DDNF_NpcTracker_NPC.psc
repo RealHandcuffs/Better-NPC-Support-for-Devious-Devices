@@ -13,12 +13,10 @@ Int _renderedDevicesFlags ; -1 means rendered devices are not known
 Bool _useUnarmedCombatPackage
 Bool _helpless
 Bool _hasAnimation
-Bool _hasDummyWeapon
 
 ; variables tracking state of script
 ; there is also a script state, so this is not the whole picture
 Bool _ignoreNotEquippedInNextFixup
-Bool _animationIsApplied
 Bool _fixupLock
 Float _lastFixupRealTime
 
@@ -34,9 +32,8 @@ Function HandleGameLoaded(Bool upgrade)
         ; also clear if NPC is dead (safety check in case OnDeath was missed somehow)
         If (upgrade || npc.IsDead())
             Clear()
-        ; also do a safety check in case OnUnload was missed somehow
+        ; also do a safety check in case OnCellDetach was missed somehow
         ElseIf (!IsParentCellAttached(npc))
-            _animationIsApplied = false ; detaching breaks animations
             RegisterForFixup(8.0)
         EndIf
         _lastFixupRealTime = 0.0 ; reset on game load
@@ -69,9 +66,7 @@ Function ForceRefTo(ObjectReference akNewRef) ; override
         _useUnarmedCombatPackage = false
         _helpless = false
         _hasAnimation = false
-        _hasDummyWeapon = npc.GetItemCount(npcTracker.DummyWeapon) > 0
         _ignoreNotEquippedInNextFixup = false
-        _animationIsApplied = false ; safe default, might be wrong
         _fixupLock = false
         _lastFixupRealTime = 0.0
         RegisterForFixup()
@@ -109,15 +104,12 @@ Function Clear() ; override
                     ; restore ability to draw weapons by changing equipped weapons
                     UnequipWeapons(npc)
                     npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
-                    _hasDummyWeapon = true ; should already be true, but set it to be sure
                 EndIf
             EndIf
-            If (_hasDummyWeapon)
+            Int dummyWeaponCount = npc.GetItemCount(npcTracker.DummyWeapon)
+            If (dummyWeaponCount > 0)
                 npc.UnequipItemEx(npcTracker.DummyWeapon)
-                Int dummyWeaponCount = npc.GetItemCount(npcTracker.DummyWeapon)
-                If (dummyWeaponCount > 0)
-                    npc.RemoveItem(npcTracker.DummyWeapon, aiCount=dummyWeaponCount, abSilent=true)
-                EndIf
+                npc.RemoveItem(npcTracker.DummyWeapon, aiCount=dummyWeaponCount, abSilent=true)
             EndIf
             ; no reason to clear the state, it will be set correctly in ForceRefTo() or in the Fixup following it
             ; but clear the array with rendered devices such that the game can reclaim the memory
@@ -142,15 +134,14 @@ EndEvent
 
 
 Event OnCellAttach()
-    RegisterForFixup(0.25) ; high priority
+    RegisterForFixup()
 EndEvent
 
 Event OnAttachedToCell()
-    RegisterForFixup(0.016) ; highest priority, usually caused NPCs following the player
+    RegisterForFixup()
 EndEvent
 
 Event OnCellDetach()
-    _animationIsApplied = false ; detaching breaks animations
     RegisterForFixup(8.0) ; the update will call Clear() if still not loaded
 EndEvent
 
@@ -171,14 +162,22 @@ Function HandleItemAddedRemoved(Form akBaseItem)
     DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
     If (npc != None && akBaseItem != npcTracker.DummyWeapon) ; we take care to add/remove DummyWeapon only in situations where it cannot break devices
         Armor maybeArmor = akBaseItem as Armor
+        Float delayOverride = -1
         If (maybeArmor != None)
             zadLibs ddLibs = npcTracker.DDLibs
             If (maybeArmor.HasKeyword(ddLibs.zad_Lockable))
                 ; a device has been added or removed, we need to rescan for devices
-                _renderedDevicesFlags = -1 ; dd framework will update the animation, we don't need to do it ourselves
+                _renderedDevicesFlags = -1
+                delayOverride = 2 ; give DD library more time to process the change
+            ElseIf (maybeArmor.HasKeyword(ddLibs.zad_InventoryDevice))
+                delayOverride = 2 ; give DD library more time to process the change
             EndIf
         EndIf
-        RegisterForFixup()
+        If (delayOverride >= 0)
+            RegisterForFixup(delayOverride)
+        Else
+            RegisterForFixup()
+        EndIf
     EndIf
 EndFunction
 
@@ -216,6 +215,23 @@ Event OnObjectEquipped(Form akBaseObject, ObjectReference akReference)
 EndEvent
 
 
+Event OnObjectUnequipped(Form akBaseObject, ObjectReference akReference)
+    If (!_fixupLock)
+        Armor maybeArmor = akBaseObject as Armor
+        If (maybeArmor != None)
+            DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
+            If (maybeArmor.HasKeyword(npcTracker.DDLibs.zad_Lockable))
+                ; a device was unequipped, check if we need to re-equip it
+                Actor npc = GetReference() as Actor
+                If (npc != None && npc.GetItemCount(maybeArmor) > 0 && !npc.IsEquipped(maybeArmor))
+                    RegisterForFixup()
+                EndIf
+            EndIf
+        EndIf
+     EndIf
+EndEvent
+
+
 Event OnCombatStateChanged(Actor akTarget, Int aeCombatState)
     If (_useUnarmedCombatPackage && !_helpless)
         Actor npc = GetReference() as Actor
@@ -223,7 +239,7 @@ Event OnCombatStateChanged(Actor akTarget, Int aeCombatState)
             DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
             If (aeCombatState == 1)
                 UnequipWeapons(npc) ; combat override package will make sure NPC is only using unarmed combat
-            ElseIf (!UnequipWeapons(npc, npcTracker.DummyWeapon) && npc.GetItemCount(npcTracker.DummyWeapon))
+            ElseIf (!UnequipWeapons(npc, npcTracker.DummyWeapon) && npc.GetItemCount(npcTracker.DummyWeapon) > 0)
                 npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
             EndIf
         EndIf
@@ -241,7 +257,7 @@ Event OnAnimationEvent(ObjectReference akSource, string asEventName)
     If (asEventName == "BeginWeaponDraw")
         If (_useUnarmedCombatPackage && (_helpless || npc.GetCombatState() != 1))
             DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
-            If (!UnequipWeapons(npc, npcTracker.DummyWeapon) && npc.GetItemCount(npcTracker.DummyWeapon)) ; for some reason the game sometimes keeps equipment in the left hand even though DummyWeapon is two-handed
+            If (!UnequipWeapons(npc, npcTracker.DummyWeapon) && npc.GetItemCount(npcTracker.DummyWeapon) > 0) ; for some reason the game sometimes keeps equipment in the left hand even though DummyWeapon is two-handed
                 npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
             EndIf
             If (_helpless)
@@ -256,16 +272,44 @@ Event OnAnimationEvent(ObjectReference akSource, string asEventName)
 EndEvent
 
 
+Event OnPackageStart(Package akNewPackage)
+    DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
+    If (akNewPackage != npcTracker.BoundCombatNPCSandbox && akNewPackage != npcTracker.BoundNPCSandbox)
+        Package template = akNewPackage.GetTemplate()
+        If (template == npcTracker.Sandbox)
+            Actor npc = GetReference() as Actor
+            If (npc != None && IsParentCellAttached(npc) && (npc.WornHasKeyword(npcTracker.DDLibs.zad_DeviousHeavyBondage) || npc.WornHasKeyword(npcTracker.DDLibs.zad_DeviousHobbleSkirt)))
+                ; bound npc switched to sandbox package (other than DD sandbox packages), check if we can kick them out of it again
+                If (npcTracker.EnablePapyrusLogging)
+                    Debug.Trace("[DDNF] Trying to kick " + GetFormIdAsString(npc) + " " + npc.GetDisplayName() + " out of sandboxing package.")
+                EndIf
+                ActorBase npcBase = npc.GetActorBase()
+                If (npcBase == Game.GetFormFromFile(0x002B6C, "Dawnguard.esm")) ; DLC1Serana
+                    ; Serana's AI is different than that of any other follower, so the DD npc slots are not working
+                    DDNF_DLC1Shim.KickSeranaFromSandboxPackage(npc)
+                Else
+                    ; Let DD slots apply the bound sandbox package
+                    npcTracker.DDLibs.RepopulateNpcs()
+                EndIf
+            EndIf
+        EndIf
+    EndIf
+EndEvent
+
+
 ; stop handling events when reference alias is empty
 Auto State AliasEmpty
 
 Event OnDeath(Actor akKiller)
 EndEvent
 
-Event OnLoad()
+Event OnCellAttach()
 EndEvent
 
-Event OnUnload()
+Event OnAttachedToCell()
+EndEvent
+
+Event OnCellDetach()
 EndEvent
 
 Event OnItemAdded(Form akBaseItem, int aiItemCount, ObjectReference akItemReference, ObjectReference akSourceContainer)
@@ -274,10 +318,19 @@ EndEvent
 Event OnItemRemoved(Form akBaseItem, int aiItemCount, ObjectReference akItemReference, ObjectReference akDestContainer)
 EndEvent
 
+Event OnObjectEquipped(Form akBaseObject, ObjectReference akReference)
+EndEvent
+
+Event OnObjectUnequipped(Form akBaseObject, ObjectReference akReference)
+EndEvent
+
 Event OnCombatStateChanged(Actor akTarget, Int aeCombatState)
 EndEvent
 
 Event OnAnimationEvent(ObjectReference akSource, string asEventName)
+EndEvent
+
+Event OnPackageStart(Package akNewPackage)
 EndEvent
 
 EndState
@@ -291,25 +344,8 @@ EndState
 ; change handling of some events when reference alias is occupied and script is waiting for quick fixup
 State AliasOccupiedWaitingForQuickFixup
 
-Function HandleItemAddedRemoved(Form akBaseItem)
-    Actor npc = GetReference() as Actor
-    Armor maybeArmor = akBaseItem as Armor
-    If (npc != None && maybeArmor != None)
-        DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
-        zadLibs ddLibs = npcTracker.DDLibs
-        If (maybeArmor.HasKeyword(ddLibs.zad_Lockable))
-            ; a device has been added or removed, we need to rescan for devices
-            _renderedDevicesFlags = -1 ; dd framework will update the animation, we don't need to do it ourselves
-            ; switch state
-            String currentState = GetState() ; might have changed since start of call
-            If (!_animationIsApplied && currentState == "AliasOccupiedWaitingForQuickFixup")
-                GotoState("AliasOccupiedWaitingForFullFixup") ; like RegisterForFixup but without changing the registered update
-            ElseIf (currentState == "AliasOccupied")
-                RegisterForFixup()
-            EndIf
-        EndIf
-    EndIf
-EndFunction
+Event OnObjectUnequipped(Form akBaseObject, ObjectReference akReference)
+EndEvent
 
 EndState
 
@@ -326,6 +362,9 @@ EndEvent
 Function HandleItemAddedRemoved(Form akBaseItem)
 EndFunction
 
+Event OnObjectUnequipped(Form akBaseObject, ObjectReference akReference)
+EndEvent
+
 EndState
 
 
@@ -335,7 +374,7 @@ Function RegisterForFixup(Float delay = 1.0) ; 1.0 is usually a good compromise 
     ; 2. if there are multiple reasons for a fixup in quick succession, the fixup will only run once
     ; 3. it is an async operation, so when the scanner calls ForceRefIfEmpty it does not have to wait for the fixup
 
-    If (_renderedDevicesFlags < 0 && !_animationIsApplied)
+    If (_renderedDevicesFlags < 0)
         GotoState("AliasOccupiedWaitingForFullFixup")
     Else
         GotoState("AliasOccupiedWaitingForQuickFixup")
@@ -350,16 +389,40 @@ Event OnUpdate()
         GotoState("AliasEmpty") ; may not be necessary
         Return
     EndIf
+    DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
+    String formIdAndName = ""
+    Bool enablePapyrusLogging = npcTracker.EnablePapyrusLogging
+    If (enablePapyrusLogging)
+        formIdAndName = GetFormIdAsString(npc) + " " + npc.GetDisplayName()
+    EndIf
     If (_fixupLock)
+        If (enablePapyrusLogging)
+            Debug.Trace("[DDNF] Postponing fixup of " + formIdAndName + " by 5.0 s (already running).")
+        EndIf
         RegisterForFixup(5.0) ; already running, postpone
         Return
     EndIf
     _fixupLock = true ; we know it is currently false
     If (!IsParentCellAttached(npc))
         _fixupLock = false
-        _animationIsApplied = false ; probably already false from OnCellDetach()
         Clear()
         Return
+    EndIf
+    If (npcTracker.RestoreOriginalOutfit)
+        ActorBase npcBase = npc.GetActorBase()
+        If (npcBase.IsUnique())
+            Outfit originalOutfit = StorageUtil.GetFormValue(npcBase, "zad_OriginalOutfit") as Outfit
+            If (originalOutfit != None)
+                If (enablePapyrusLogging)
+                    Debug.Trace("[DDNF] Restoring original outfit of " + formIdAndName + " and rescheduling fixup.")
+                EndIf
+                npc.SetOutfit(originalOutfit, false)
+                StorageUtil.UnSetFormValue(npcBase, "zad_OriginalOutfit")
+                _fixupLock = false
+                RegisterForFixup()
+                Return
+            EndIf
+        EndIf
     EndIf
     Float timeSinceLastFixup = Utility.GetCurrentRealTime() - _lastFixupRealTime
     If (timeSinceLastFixup < 5.0)
@@ -370,20 +433,22 @@ Event OnUpdate()
             waitTime = 1.0
         EndIf
         _fixupLock = false
+        If (enablePapyrusLogging)
+            Debug.Trace("[DDNF] Postponing fixup of " + formIdAndName + " by " + waitTime + " s (recent fixup).")
+        EndIf
         RegisterForFixup(waitTime)
         Return
     EndIf
-    DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
     Float slowDownTime = npcTracker.NeedToSlowDownBeforeFixup(npc)
     If (slowDownTime > 0.0)
         _fixupLock = false
+        If (enablePapyrusLogging)
+            Debug.Trace("[DDNF] Postponing fixup of " + formIdAndName + " by " + slowDownTime + " s (slowing down to reduce script load).")
+        EndIf
         RegisterForFixup(slowDownTime)
         Return
     EndIf
-    Bool enablePapyrusLogging = npcTracker.EnablePapyrusLogging
-    String formIdAndName = ""
     If (enablePapyrusLogging)
-        formIdAndName = GetFormIdAsString(npc) + " " + npc.GetDisplayName()
         Debug.Trace("[DDNF] Fixing up devices of " + formIdAndName + ".")
     EndIf
     GotoState("AliasOccupied") ; we know the alias is not empty
@@ -439,16 +504,6 @@ Event OnUpdate()
     Bool useUnarmedCombatPackage = Math.LogicalAnd(renderedDevicesFlags, 256)
     Bool helpless = Math.LogicalAnd(renderedDevicesFlags, 512)
     Bool hasAnimation = Math.LogicalAnd(renderedDevicesFlags, 1024)
-    ; also add/remove dummy weapon if necessary
-    ; we need to do this now, before actually fixing devices
-    If (useUnarmedCombatPackage)
-        If (!_hasDummyWeapon)
-            _hasDummyWeapon = true
-            npc.AddItem(npcTracker.DummyWeapon, abSilent=true)
-        EndIf
-    ElseIf (_hasAnimation && npc.IsWeaponDrawn())
-        npc.SheatheWeapon()
-    EndIf
 
     ; step two: unequip and reequip all rendered devices to restart the effects
     ; from this point on we need to abort and restart the fixup if something changes
@@ -492,33 +547,43 @@ Event OnUpdate()
 
     ; step three: handle weapons and animation effects
     If (hasAnimation)
-        If (!_animationIsApplied)
+        zadBoundCombatScript boundCombat = ddLibs.BoundCombat
+        Int fnisAaMtIdleCrc = npc.GetAnimationVariableInt("FNISaa_mtidle_crc")
+        Bool animationIsApplied = false
+        If (npc.GetAnimationVariableInt("FNISaa_mtidle_crc") == fnis_aa.GetInstallationCRC())
+             ; use _mtidle animation to check if animations are applied
+            Int fnisAaMtIdle = npc.GetAnimationVariableInt("FNISaa_mtidle")
+            animationIsApplied = IsInFnisGroup(fnisAaMtIdle, boundCombat.ABC_mtidle) || IsInFnisGroup(fnisAaMtIdle, boundCombat.HBC_mtidle) || IsInFnisGroup(fnisAaMtIdle, boundCombat.PON_mtidle)
+        EndIf
+        If (animationIsApplied)
+            ; un/reequipping devices can break the current idle and replace it with the default idle, restart the bound idle
+            Debug.SendAnimationEvent(npc, "IdleForceDefaultState")
+        Else
             If (enablePapyrusLogging)
                 Debug.Trace("[DDNF] Reevaluating animations of " + formIdAndName + ".")
             EndIf
             ; modifying animations will cause a weird state where the NPC cannot draw weapons if they are currently drawn
             ; this can be reverted by changing the equipped weapons of the npc
             Bool restoreWeaponAccess = !helpless && npc.IsWeaponDrawn()
-            ddLibs.BoundCombat.EvaluateAA(npc) ; very expensive call
+            boundCombat.EvaluateAA(npc) ; very expensive call
             If (restoreWeaponAccess)
                 ; restore ability to draw weapons by changing equipped weapons
                 UnequipWeapons(npc)
             EndIf
-        Else
-            ; un/reequipping devices can break the current idle and replace it with the default idle, restart the bound idle
-            Debug.SendAnimationEvent(npc, "IdleForceDefaultState")
         EndIf
     EndIf
-    _animationIsApplied = true
     If (useUnarmedCombatPackage)
         If (!UnequipWeapons(npc, npcTracker.DummyWeapon))
             npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
-            _hasDummyWeapon = true ; should already be true, but set it to be sure
         EndIf
         RegisterForAnimationEvent(npc, "BeginWeaponDraw") ; register even if we think that we are already registered
     ElseIf (_useUnarmedCombatPackage)
         UnregisterForAnimationEvent(npc, "BeginWeaponDraw")
-        npc.UnequipItemEx(npcTracker.DummyWeapon)
+        Int dummyWeaponCount = npc.GetItemCount(npcTracker.DummyWeapon)
+        If (dummyWeaponCount > 0)
+            npc.UnequipItemEx(npcTracker.DummyWeapon)
+            npc.RemoveItem(npcTracker.DummyWeapon, aiCount=dummyWeaponCount, abSilent=true)
+        EndIf
     EndIf
     ; almost done, so do not abort and reschedule if another fixup is scheduled, just let things run their normal course instead
 
@@ -557,6 +622,9 @@ Event OnUpdate()
     If (enablePapyrusLogging)
         Debug.Trace("[DDNF] Succeeded fixing up devices of " + formIdAndName + ".")
     EndIf
+    If (_hasAnimation)
+        OnPackageStart(npc.GetCurrentPackage())
+    EndIf
 EndEvent
 
 
@@ -568,6 +636,12 @@ Bool Function IsParentCellAttached(Actor npc) Global
     Return parentCell != None && parentCell.IsAttached()
 EndFunction
 
+;
+; Check if an animation variable is in the range of a FNIS group.
+;
+Bool Function IsInFnisGroup(Int animationVariable, Int groupBaseValue) Global
+    Return animationVariable >= groupBaseValue && animationVariable <= groupBaseValue + 9
+EndFunction
 
 ;
 ; Fills the renderedDevices array with the rendered devices of the actor, starting from index 0.

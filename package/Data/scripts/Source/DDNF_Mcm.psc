@@ -8,8 +8,10 @@ DDNF_MainQuest Property MainQuest Auto
 Int Property OptionNpcProcessingEnabled Auto
 Int Property OptionScannerFrequency Auto
 Int Property OptionMaxFixupsPerThreeSeconds Auto
+Int Property OptionRestoreOriginalOutfit Auto
 
 Int Property OptionEnablePapyrusLogging Auto
+Int Property OptionFixupOnMenuClose Auto
 
 
 Event OnPageReset(string page)
@@ -20,16 +22,22 @@ Event OnPageReset(string page)
 
     AddHeaderOption("NPC Processing")
     Bool isRunning = MainQuest.NpcTracker.IsRunning()
-    OptionNpcProcessingEnabled = AddToggleOption("NPCs are being processed", MainQuest.NpcTracker.IsRunning())
+    OptionNpcProcessingEnabled = AddToggleOption("Process NPCs (unchecking disables mod)", MainQuest.NpcTracker.IsRunning())
     Int flags = OPTION_FLAG_NONE
     If (!isRunning)
         flags = OPTION_FLAG_DISABLED
     EndIf
     OptionScannerFrequency = AddSliderOption("Scan for NPCs every", MainQuest.SecondsBetweenScans, a_formatString = "{0} seconds", a_flags = flags)
     OptionMaxFixupsPerThreeSeconds = AddSliderOption("NPCs to process/3 seconds", MainQuest.NpcTracker.MaxFixupsPerThreeSeconds, a_flags = flags)
+    OptionRestoreOriginalOutfit = AddToggleOption("Restore original outfits", MainQuest.NpcTracker.RestoreOriginalOutfit, a_flags = flags)
 
     AddHeaderOption("Debug Settings")
-    OptionEnablePapyrusLogging = AddToggleOption("Enable Pyprus Logging", MainQuest.NpcTracker.EnablePapyrusLogging)
+    OptionEnablePapyrusLogging = AddToggleOption("Enable payprus logging", MainQuest.NpcTracker.EnablePapyrusLogging)
+    Actor cursorActor = Game.GetCurrentCrosshairRef() as Actor
+    If (cursorActor != None)
+        AddTextOption("NPC under crosshair", DDNF_NpcTracker_NPC.GetFormIdAsString(cursorActor))
+        OptionFixupOnMenuClose = AddToggleOption("Queue fixup on menu close", false, a_flags = flags)
+    EndIf
 EndEvent
 
 
@@ -41,6 +49,7 @@ Event OnOptionDefault(Int option)
             SetToggleOptionValue(OptionNpcProcessingEnabled, true)
             SetOptionFlags(OptionScannerFrequency, OPTION_FLAG_NONE, true)
             SetOptionFlags(OptionMaxFixupsPerThreeSeconds, OPTION_FLAG_NONE, false)
+            SetOptionFlags(OptionRestoreOriginalOutfit, OPTION_FLAG_NONE, false)
             If (MainQuest.NpcTracker.EnablePapyrusLogging)
                 Debug.Trace("[DDNF] MCM: Enabled NPC processing.")
             EndIf
@@ -60,6 +69,12 @@ Event OnOptionDefault(Int option)
             If (MainQuest.NpcTracker.EnablePapyrusLogging)
                 Debug.Trace("[DDNF] MCM: Set max fixups/3 seconds to 3.")
             EndIf
+        EndIf
+    ElseIf (option == OptionRestoreOriginalOutfit)
+        If (MainQuest.NpcTracker.RestoreOriginalOutfit)
+            MainQuest.NpcTracker.RestoreOriginalOutfit = false
+            SetToggleOptionValue(OptionRestoreOriginalOutfit, false)
+            Debug.Trace("[DDNF] MCM: Disabled restoring original outfits.")
         EndIf
     ElseIf (option == OptionEnablePapyrusLogging)
         If (MainQuest.NpcTracker.EnablePapyrusLogging)
@@ -85,12 +100,21 @@ Event OnOptionSelect(Int option)
         SetToggleOptionValue(OptionNpcProcessingEnabled, !isRunning)
         SetOptionFlags(OptionScannerFrequency, flags, true)
         SetOptionFlags(OptionMaxFixupsPerThreeSeconds, flags, false)
+        SetOptionFlags(OptionRestoreOriginalOutfit, flags, false)
         If (MainQuest.NpcTracker.EnablePapyrusLogging)
             If (isRunning)
                 Debug.Trace("[DDNF] MCM: Disabled NPC processing.")
             Else
                 Debug.Trace("[DDNF] MCM: Enabled NPC processing.")
             EndIf
+        EndIf
+    ElseIf (option == OptionRestoreOriginalOutfit)
+        MainQuest.NpcTracker.RestoreOriginalOutfit = !MainQuest.NpcTracker.RestoreOriginalOutfit
+        SetToggleOptionValue(OptionRestoreOriginalOutfit, MainQuest.NpcTracker.RestoreOriginalOutfit)
+        If (MainQuest.NpcTracker.RestoreOriginalOutfit)
+            Debug.Trace("[DDNF] MCM: Enabled restoring original outfits.")
+        Else
+            Debug.Trace("[DDNF] MCM: Disabled restoring original outfits.")
         EndIf
     ElseIf (option == OptionEnablePapyrusLogging)
         MainQuest.NpcTracker.EnablePapyrusLogging = !MainQuest.NpcTracker.EnablePapyrusLogging
@@ -99,6 +123,17 @@ Event OnOptionSelect(Int option)
             Debug.Trace("[DDNF] MCM: Enabled Papyrus logging.")
         Else
             Debug.Trace("[DDNF] MCM: Disabled Papyrus logging.")
+        EndIf
+    ElseIf (option == OptionFixupOnMenuClose)
+        Actor cursorActor = Game.GetCurrentCrosshairRef() as Actor
+        If (cursorActor == None)
+            SetToggleOptionValue(OptionFixupOnMenuClose, false)
+        Else
+            If (MainQuest.NpcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] MCM: Requested fixup of " + DDNF_NpcTracker_NPC.GetFormIdAsString(cursorActor) + " " + cursorActor.GetDisplayName() + ".")
+            EndIf
+            SetToggleOptionValue(OptionFixupOnMenuClose, true)
+            MainQuest.NpcTracker.QueueForFixup(cursorActor)
         EndIf
     EndIf
 EndEvent
