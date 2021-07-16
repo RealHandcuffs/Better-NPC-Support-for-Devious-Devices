@@ -82,3 +82,7 @@ Version 0.3 beta 5
 
 Version 0.3
 - No changes, same as 0.3 beta 5 other than version number.
+
+Version 0.4 beta 1
+- Add support for unequipping "weapon on back" display armors, currently supports "All Geared Up Derivative"
+- Some minor performance optimizations

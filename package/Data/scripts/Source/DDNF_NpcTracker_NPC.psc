@@ -184,10 +184,20 @@ EndFunction
 
 Event OnObjectEquipped(Form akBaseObject, ObjectReference akReference)
     If (_useUnarmedCombatPackage && !_fixupLock)
+        DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
         Bool doUnequip = false
         Armor equippedArmor = akBaseObject as Armor
         If (equippedArmor != None)
             If (!equippedArmor.IsShield())
+                If (npcTracker.WeaponDisplayArmors.HasForm(equippedArmor))
+                    Actor npc = GetReference() as Actor
+                    If (npc != None && _useUnarmedCombatPackage && !_fixupLock) ; recheck conditions
+                        If (npcTracker.EnablePapyrusLogging)
+                            Debug.Trace("[DDNF] Unequip weapon display armor " + GetFormIdAsString(akBaseObject) + " " + akBaseObject.GetName() + " of " + GetFormIdAsString(npc) + " " + npc.GetDisplayName() + " after it was equipped.")
+                        EndIf
+                        npc.UnequipItem(equippedArmor, abSilent=true)
+                    EndIf
+                EndIf
                 Return
             EndIf
             doUnequip = true
@@ -195,7 +205,6 @@ Event OnObjectEquipped(Form akBaseObject, ObjectReference akReference)
         If (!doUnequip)
             doUnequip = (akBaseObject as Spell) != None
         EndIf
-        DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
         If (!doUnequip)
             Weapon equippiedWeapon = akBaseObject as Weapon
             doUnequip = equippiedWeapon != None && equippiedWeapon != npcTracker.DummyWeapon
@@ -410,18 +419,16 @@ Event OnUpdate()
     EndIf
     If (npcTracker.RestoreOriginalOutfit)
         ActorBase npcBase = npc.GetActorBase()
-        If (npcBase.IsUnique())
-            Outfit originalOutfit = StorageUtil.GetFormValue(npcBase, "zad_OriginalOutfit") as Outfit
-            If (originalOutfit != None)
-                If (enablePapyrusLogging)
-                    Debug.Trace("[DDNF] Restoring original outfit of " + formIdAndName + " and rescheduling fixup.")
-                EndIf
-                npc.SetOutfit(originalOutfit, false)
-                StorageUtil.UnSetFormValue(npcBase, "zad_OriginalOutfit")
-                _fixupLock = false
-                RegisterForFixup()
-                Return
+        Outfit originalOutfit = StorageUtil.GetFormValue(npcBase, "zad_OriginalOutfit") as Outfit
+        If (originalOutfit != None)
+            If (enablePapyrusLogging)
+                Debug.Trace("[DDNF] Restoring original outfit of " + formIdAndName + " and rescheduling fixup.")
             EndIf
+            npc.SetOutfit(originalOutfit, false)
+            StorageUtil.UnSetFormValue(npcBase, "zad_OriginalOutfit")
+            _fixupLock = false
+            RegisterForFixup()
+            Return
         EndIf
     EndIf
     Float timeSinceLastFixup = Utility.GetCurrentRealTime() - _lastFixupRealTime
@@ -577,6 +584,7 @@ Event OnUpdate()
             npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
         EndIf
         RegisterForAnimationEvent(npc, "BeginWeaponDraw") ; register even if we think that we are already registered
+        UnequipEquippedArmors(npc, npcTracker.WeaponDisplayArmors, true)
     ElseIf (_useUnarmedCombatPackage)
         UnregisterForAnimationEvent(npc, "BeginWeaponDraw")
         Int dummyWeaponCount = npc.GetItemCount(npcTracker.DummyWeapon)
@@ -658,33 +666,74 @@ Int Function FindAndAnalyzeRenderedDevices(zadLibs ddLibs, FormList interestingD
     Int bottomIndex = 0
     Int topIndex = renderedDevices.Length
     Int index = 0
-    Int count = npc.GetNumItems()
-    Bool hasInterestingDevices = npc.GetItemCount(interestingDevices) > 0
-    While (index < count && bottomIndex < topIndex)
-        Armor maybeRenderedDevice = npc.GetNthForm(index) as Armor
-        If (maybeRenderedDevice != None && maybeRenderedDevice.HasKeyword(zadLockable))
-            ; found a rendered device
-            If (maybeRenderedDevice.GetEnchantment() == None && (!hasInterestingDevices || !interestingDevices.HasForm(maybeRenderedDevice)))
-                ; put devices without magical effect (and also not in "interesting devices" formlist) temporarily at top of array
-                topIndex -= 1
-                renderedDevices[topIndex] = maybeRenderedDevice
+    Int zadLockableCount = npc.GetItemCount(zadLockable)
+    If (zadLockableCount > 0)
+        Int foundDevices = 0
+        Bool hasInterestingDevices = npc.GetItemCount(interestingDevices) > 0
+        ; first try to find all rendered devices by looking at the worn devices, 90% of the time this works
+        Int remainingSlots = 0xffffffff
+        While (remainingSlots != 0)
+            Armor maybeRenderedDevice = npc.GetWornForm(remainingSlots) as Armor
+            If (maybeRenderedDevice == None)
+                remainingSlots = 0
             Else
-                ; put devices with magical effect at bottom of array
-                renderedDevices[bottomIndex] = maybeRenderedDevice
-                bottomIndex += 1
+                Int slotMask = maybeRenderedDevice.GetSlotMask()
+                remainingSlots = Math.LogicalAnd(remainingSlots, Math.LogicalNot(slotMask))
+                If (maybeRenderedDevice.HasKeyword(zadLockable))
+                    ; found a rendered device
+                    If (maybeRenderedDevice.GetEnchantment() == None && (!hasInterestingDevices || !interestingDevices.HasForm(maybeRenderedDevice)))
+                        ; put devices without magical effect (and also not in "interesting devices" formlist) temporarily at top of array
+                        topIndex -= 1
+                        renderedDevices[topIndex] = maybeRenderedDevice
+                    Else
+                        ; put devices with magical effect at bottom of array
+                        renderedDevices[bottomIndex] = maybeRenderedDevice
+                        bottomIndex += 1
+                    EndIf
+                    foundDevices += 1
+                    If (foundDevices == zadLockableCount)
+                        remainingSlots = 0 ; found all devices, early abort
+                    EndIf
+                EndIf
             EndIf
-        EndIf
-        index += 1
-    EndWhile
-    index = bottomIndex
-    If (index < topIndex)
-        ; move devices without magical effect to bottom of array, just after devices with magical effect
-        While (topIndex < renderedDevices.Length)
-            renderedDevices[index] = renderedDevices[topIndex]
-            index += 1
-            renderedDevices[topIndex] = None
-            topIndex += 1
         EndWhile
+        If (foundDevices < zadLockableCount)
+            ; failure, probably some rendered devices are unlocked, restart and find all rendered devices by looking at the whole inventory
+            bottomIndex = 0
+            topIndex = renderedDevices.Length
+            index = npc.GetNumItems() - 1 ; start at end to increase chance of early abort
+            foundDevices = 0
+            While (index >= 0 && bottomIndex < topIndex)
+                Armor maybeRenderedDevice = npc.GetNthForm(index) as Armor
+                If (maybeRenderedDevice != None && maybeRenderedDevice.HasKeyword(zadLockable))
+                    ; found a rendered device
+                    If (maybeRenderedDevice.GetEnchantment() == None && (!hasInterestingDevices || !interestingDevices.HasForm(maybeRenderedDevice)))
+                        ; put devices without magical effect (and also not in "interesting devices" formlist) temporarily at top of array
+                        topIndex -= 1
+                        renderedDevices[topIndex] = maybeRenderedDevice
+                    Else
+                        ; put devices with magical effect at bottom of array
+                        renderedDevices[bottomIndex] = maybeRenderedDevice
+                        bottomIndex += 1
+                    EndIf
+                    foundDevices += 1
+                    If (foundDevices == zadLockableCount)
+                        index = 0 ; found all devices, early abort
+                    EndIf
+                EndIf
+                index -= 1
+            EndWhile
+        EndIf
+        index = bottomIndex
+        If (index < topIndex)
+            ; move devices without magical effect to bottom of array, just after devices with magical effect
+            While (topIndex < renderedDevices.Length)
+                renderedDevices[index] = renderedDevices[topIndex]
+                index += 1
+                renderedDevices[topIndex] = None
+                topIndex += 1
+            EndWhile
+        EndIf
     EndIf
     While (index < renderedDevices.Length && renderedDevices[index] != None)
         ; clear unused array slot (reusing the array and less devices found than last time)
@@ -882,6 +931,32 @@ Bool Function UnequipWeapons(Actor npc, Weapon ignoreWeapon = None) Global
     Return keptIgnoreWeapon
 EndFunction
 
+Function UnequipEquippedArmors(Actor npc, FormList maybeEquippedArmors, Bool ignoreShields) Global
+    If (!npc.IsEquipped(maybeEquippedArmors))
+        Return ; short-circuit
+    EndIf
+    Int ignoredSlots
+    If (ignoreShields)
+        ignoredSlots = 0x00000200
+    Else
+        ignoredSlots = 0x00000000
+    EndIf
+    Int remainingSlots = Math.LogicalNot(ignoredSlots)
+    While (remainingSlots != 0)
+        Armor wornArmor = npc.GetWornForm(remainingSlots) as Armor
+        If (wornArmor == None)
+            Return
+        EndIf
+        Int slotMask = wornArmor.GetSlotMask()
+        remainingSlots = Math.LogicalAnd(remainingSlots, Math.LogicalNot(slotMask))
+        If (maybeEquippedArmors.HasForm(wornArmor))
+            npc.UnequipItem(wornArmor, abSilent = true)
+            If (remainingSlots == 0 || !npc.IsEquipped(maybeEquippedArmors))
+                Return ; all unequipped, early abort
+            EndIf
+        EndIf
+    EndWhile
+EndFunction
 
 String Function GetFormIdAsString(Form item) Global
     Int modId

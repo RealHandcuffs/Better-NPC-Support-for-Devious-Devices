@@ -36,7 +36,11 @@ Event OnPageReset(string page)
     Actor cursorActor = Game.GetCurrentCrosshairRef() as Actor
     If (cursorActor != None)
         AddTextOption("NPC under crosshair", DDNF_NpcTracker_NPC.GetFormIdAsString(cursorActor))
-        OptionFixupOnMenuClose = AddToggleOption("Queue fixup on menu close", false, a_flags = flags)
+        Package cursorActorPackage = cursorActor.GetCurrentPackage()
+        If (cursorActorPackage != None)
+            AddTextOption("  Current Package:", DDNF_NpcTracker_NPC.GetFormIdAsString(cursorActorPackage))
+        EndIf
+        OptionFixupOnMenuClose = AddToggleOption("  Queue fixup on menu close", false, a_flags = flags)
     EndIf
 EndEvent
 
