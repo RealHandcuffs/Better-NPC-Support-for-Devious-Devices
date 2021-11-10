@@ -13,6 +13,7 @@ Int _renderedDevicesFlags ; -1 means rendered devices are not known
 Bool _useUnarmedCombatPackage
 Bool _helpless
 Bool _hasAnimation
+Bool _hasPanelGag
 
 ; variables tracking state of script
 ; there is also a script state, so this is not the whole picture
@@ -66,6 +67,7 @@ Function ForceRefTo(ObjectReference akNewRef) ; override
         _useUnarmedCombatPackage = false
         _helpless = false
         _hasAnimation = false
+        _hasPanelGag = false
         _ignoreNotEquippedInNextFixup = false
         _fixupLock = false
         _lastFixupRealTime = 0.0
@@ -173,6 +175,23 @@ Function HandleItemAddedRemoved(Form akBaseItem)
                 delayOverride = 2 ; give DD library more time to process the change
             EndIf
         EndIf
+        If (_renderedDevicesFlags != -1 && _hasPanelGag && !_fixupLock)
+            ; "quick fix" panel gags after inventory changes because missing panel gag effects are very obvious
+            ; and often the player will look directly at the NPC (e.g. after modifying inventory in trade menu)
+            If (npcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] Quick-fixing panel gag of " + GetFormIdAsString(npc) + " " + npc.GetDisplayName() + " after inventory change.")
+            EndIf
+            _fixupLock = true
+            Armor panelGag = _renderedDevices[0]
+            If (npc.IsEquipped(panelGag))
+                npc.UnequipItem(panelGag, abPreventEquip=true, abSilent=true)
+            EndIf
+            Utility.Wait(0.017) ; give the game time to fully register the unequip
+            If (npc.GetItemCount(panelGag) > 0) ; safety check
+                npc.EquipItem(panelGag, abPreventRemoval=true, abSilent=true)                
+            EndIf
+            _fixupLock = false
+        EndIf
         If (delayOverride >= 0)
             RegisterForFixup(delayOverride)
         Else
@@ -232,8 +251,14 @@ Event OnObjectUnequipped(Form akBaseObject, ObjectReference akReference)
             If (maybeArmor.HasKeyword(npcTracker.DDLibs.zad_Lockable))
                 ; a device was unequipped, check if we need to re-equip it
                 Actor npc = GetReference() as Actor
-                If (npc != None && npc.GetItemCount(maybeArmor) > 0 && !npc.IsEquipped(maybeArmor))
-                    RegisterForFixup()
+                If (npc != None && !npc.IsEquipped(maybeArmor) && npc.GetItemCount(maybeArmor) > 0)
+                    If (_fixupLock)
+                        RegisterForFixup()
+                    Else
+                        _fixupLock = true
+                        npc.EquipItem(maybeArmor)
+                        _fixupLock = false
+                    EndIf
                 EndIf
             EndIf
         EndIf
@@ -511,6 +536,7 @@ Event OnUpdate()
     Bool useUnarmedCombatPackage = Math.LogicalAnd(renderedDevicesFlags, 256)
     Bool helpless = Math.LogicalAnd(renderedDevicesFlags, 512)
     Bool hasAnimation = Math.LogicalAnd(renderedDevicesFlags, 1024)
+    Bool hasPanelGag = Math.LogicalAnd(renderedDevicesFlags, 2048)
 
     ; step two: unequip and reequip all rendered devices to restart the effects
     ; from this point on we need to abort and restart the fixup if something changes
@@ -622,9 +648,16 @@ Event OnUpdate()
     If (factionsModified)
         npc.EvaluatePackage()
     EndIf
+    If (hasPanelGag)
+        Faction panelGagFaction = ddLibs.zadGagPanelFaction
+        If (npc.GetFactionRank(panelGagFaction) <= -1)
+            npc.SetFactionRank(panelGagFaction, 1) ; fix missing faction membership, e.g. caused by DDe
+        EndIf
+    EndIf
     _hasAnimation = hasAnimation
     _lastFixupRealTime = Utility.GetCurrentRealTime()
     _fixupLock = false
+    _hasPanelGag = hasPanelGag
 
     ; done
     If (enablePapyrusLogging)
@@ -659,6 +692,7 @@ EndFunction
 ; 256 - flag: use unarmed combat package
 ; 512 - flag: helpless
 ; 1024 - flag: has animation
+; 2048 - flag: has panel gag
 ;
 Int Function FindAndAnalyzeRenderedDevices(zadLibs ddLibs, FormList interestingDevices, Bool useBoundCombat, Actor npc, Armor[] renderedDevices) Global
     ; find devices
@@ -747,6 +781,7 @@ Int Function FindAndAnalyzeRenderedDevices(zadLibs ddLibs, FormList interestingD
     Bool hasHeavyBondage = false
     Bool disableKick = !useBoundCombat
     Bool hasAnimation = false
+    Bool hasPanelGag = false
     If (bottomIndex > 0)
         Keyword zadDeviousHeavyBondage = ddLibs.zad_DeviousHeavyBondage
         index = 0
@@ -802,6 +837,24 @@ Int Function FindAndAnalyzeRenderedDevices(zadLibs ddLibs, FormList interestingD
                 EndIf
             EndWhile
         EndIf
+        If (!hasPanelGag)
+            Keyword zadDeviousGagPanel = ddLibs.zad_DeviousGagPanel
+            index = 0
+            While (index < bottomIndex)
+                If (renderedDevices[index].HasKeyword(zadDeviousGagPanel))
+                    ; found a panel gag, move it to index 0
+                    hasPanelGag = true
+                    If (index != 0)
+                        Armor panelGag = renderedDevices[index]
+                        renderedDevices[index] = renderedDevices[0]
+                        renderedDevices[0] = panelGag
+                    EndIf
+                    index = 999
+                Else
+                    index += 1
+                EndIf
+            EndWhile
+        EndIf
     EndIf
     ; assemble return value
     Int flags = bottomIndex ; number of devices with magical effect
@@ -813,6 +866,9 @@ Int Function FindAndAnalyzeRenderedDevices(zadLibs ddLibs, FormList interestingD
     EndIf
     If (hasAnimation)
         flags += 1024 ; has animation
+    EndIf
+    If (hasPanelGag)
+        flags += 2048 ; has panel gag
     EndIf
     Return flags
 EndFunction

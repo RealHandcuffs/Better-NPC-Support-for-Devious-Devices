@@ -86,3 +86,7 @@ Version 0.3
 Version 0.4 beta 1
 - Add support for unequipping "weapon on back" display armors, currently supports "All Geared Up Derivative"
 - Some minor performance optimizations
+
+Version 0.4 beta 2
+- Add special handling for panel gags
+- One more very minor performance optimizatio
