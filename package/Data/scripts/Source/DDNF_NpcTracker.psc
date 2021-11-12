@@ -10,7 +10,6 @@ Actor Property Player Auto
 Faction Property DeviceTargets Auto
 Faction Property Helpless Auto
 Faction Property UnarmedCombatants Auto
-FormList Property InterestingDevices Auto
 FormList Property WeaponDisplayArmors Auto
 Keyword Property TrackingKeyword Auto
 Package Property Sandbox Auto
@@ -53,7 +52,6 @@ Function HandleGameLoaded(Bool upgrade)
         Alias[] emptyArray
         _cachedAliases = emptyArray
     EndIf
-    RefreshInterestingDevices()
     RefreshWeaponDisplayArmors()
     ; notify all alias scripts
     Int index = 0
@@ -70,22 +68,9 @@ Function HandleGameLoaded(Bool upgrade)
     EndIf
 EndFunction
 
-Function RefreshInterestingDevices()
-    InterestingDevices.Revert()
-    AddInterestingDevice("Pahe_Dwarven_Devious_suits.esp", 0x000801)
-    AddInterestingDevice("Pahe_Dwarven_Devious_suits.esp", 0x000805)
-EndFunction
-
 Function RefreshWeaponDisplayArmors()
     WeaponDisplayArmors.Revert()
     AddWeaponDisplayArmorsFromFormList("All Geared Up Derivative.esp", 0x02E0EE)
-EndFunction
-
-Function AddInterestingDevice(string fileName, Int formId)
-    Form renderedDevice = Game.GetFormFromFile(formId, fileName)
-    If (renderedDevice != None && renderedDevice.HasKeyword(DDLibs.zad_Lockable))
-        InterestingDevices.AddForm(renderedDevice)
-    EndIf
 EndFunction
 
 Function AddWeaponDisplayArmorsFromFormList(string fileName, Int formId)

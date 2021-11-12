@@ -90,3 +90,7 @@ Version 0.4 beta 1
 Version 0.4 beta 2
 - Add special handling for panel gags
 - One more very minor performance optimizatio
+
+Version 0.4 beta 3
+- Check keywords of all devices, not just the ones with magic effects
+- Use StorageUtil to speed up analysis of equipped devices by caching information for each "rendered device" that is encountered

@@ -494,7 +494,7 @@ Event OnUpdate()
         If (_renderedDevices.Length != 32) ; number of slots
             _renderedDevices = new Armor[32]
         EndIf
-        renderedDevicesFlags = FindAndAnalyzeRenderedDevices(ddLibs, npcTracker.InterestingDevices, npcTracker.UseBoundCombat, npc, _renderedDevices)
+        renderedDevicesFlags = FindAndAnalyzeRenderedDevices(ddLibs, npcTracker.UseBoundCombat, npc, _renderedDevices, enablePapyrusLogging)
         If (GetState() != "AliasOccupied")
             ; something has triggered a new fixup while we were finding and analysing devices
             If (_renderedDevicesFlags != 0 || !IsParentCellAttached(npc))
@@ -580,11 +580,11 @@ Event OnUpdate()
 
     ; step three: handle weapons and animation effects
     If (hasAnimation)
+        ; use _mtidle animation to check if animations are applied
         zadBoundCombatScript boundCombat = ddLibs.BoundCombat
-        Int fnisAaMtIdleCrc = npc.GetAnimationVariableInt("FNISaa_mtidle_crc")
         Bool animationIsApplied = false
-        If (npc.GetAnimationVariableInt("FNISaa_mtidle_crc") == fnis_aa.GetInstallationCRC())
-             ; use _mtidle animation to check if animations are applied
+        Int fnisAaMtIdleCrc = npc.GetAnimationVariableInt("FNISaa_mtidle_crc")
+        If (fnisAaMtIdleCrc != 0 && fnisAaMtIdleCrc == fnis_aa.GetInstallationCRC())
             Int fnisAaMtIdle = npc.GetAnimationVariableInt("FNISaa_mtidle")
             animationIsApplied = IsInFnisGroup(fnisAaMtIdle, boundCombat.ABC_mtidle) || IsInFnisGroup(fnisAaMtIdle, boundCombat.HBC_mtidle) || IsInFnisGroup(fnisAaMtIdle, boundCombat.PON_mtidle)
         EndIf
@@ -648,10 +648,12 @@ Event OnUpdate()
     If (factionsModified)
         npc.EvaluatePackage()
     EndIf
-    If (hasPanelGag)
+    If (hasPanelGag != _hasPanelGag)
         Faction panelGagFaction = ddLibs.zadGagPanelFaction
-        If (npc.GetFactionRank(panelGagFaction) <= -1)
-            npc.SetFactionRank(panelGagFaction, 1) ; fix missing faction membership, e.g. caused by DDe
+        If (hasPanelGag && npc.GetFactionRank(panelGagFaction) <= -1)
+            npc.SetFactionRank(panelGagFaction, 1) ; fix missing faction membership, caused by mods that directly manipulate devices like DDe
+        ElseIf (!hasPanelGag && npc.GetFactionRank(panelGagFaction) >= 0)
+            npc.RemoveFromFaction(panelGagFaction) ; dito
         EndIf
     EndIf
     _hasAnimation = hasAnimation
@@ -694,34 +696,41 @@ EndFunction
 ; 1024 - flag: has animation
 ; 2048 - flag: has panel gag
 ;
-Int Function FindAndAnalyzeRenderedDevices(zadLibs ddLibs, FormList interestingDevices, Bool useBoundCombat, Actor npc, Armor[] renderedDevices) Global
+Int Function FindAndAnalyzeRenderedDevices(zadLibs ddLibs, Bool useBoundCombat, Actor npc, Armor[] renderedDevices, Bool enablePapyrusLogging) Global
     ; find devices
-    Keyword zadLockable = ddLibs.zad_Lockable
     Int bottomIndex = 0
     Int topIndex = renderedDevices.Length
     Int index = 0
+    Keyword zadLockable = ddLibs.zad_Lockable
     Int zadLockableCount = npc.GetItemCount(zadLockable)
+    Int combinedDeviceFlags = 0
+    Int panelGagIndex = -1
     If (zadLockableCount > 0)
         Int foundDevices = 0
-        Bool hasInterestingDevices = npc.GetItemCount(interestingDevices) > 0
         ; first try to find all rendered devices by looking at the worn devices, 90% of the time this works
         Int remainingSlots = 0xffffffff
-        While (remainingSlots != 0)
+        While (remainingSlots != 0 && bottomIndex < topIndex)
             Armor maybeRenderedDevice = npc.GetWornForm(remainingSlots) as Armor
             If (maybeRenderedDevice == None)
                 remainingSlots = 0
             Else
                 Int slotMask = maybeRenderedDevice.GetSlotMask()
                 remainingSlots = Math.LogicalAnd(remainingSlots, Math.LogicalNot(slotMask))
-                If (maybeRenderedDevice.HasKeyword(zadLockable))
+                Int deviceFlags = AnylyzeMaybeDevice(ddLibs, zadLockable, maybeRenderedDevice, enablePapyrusLogging)
+                If (deviceFlags > 0)
                     ; found a rendered device
-                    If (maybeRenderedDevice.GetEnchantment() == None && (!hasInterestingDevices || !interestingDevices.HasForm(maybeRenderedDevice)))
-                        ; put devices without magical effect (and also not in "interesting devices" formlist) temporarily at top of array
+                    combinedDeviceFlags = Math.LogicalOr(combinedDeviceFlags, deviceFlags)
+                    Bool isPanelGag = Math.LogicalAnd(deviceFlags, 64) == 64
+                    If (!isPanelGag && Math.LogicalAnd(deviceFlags, 2) == 0)
+                        ; put devices without magical effect temporarily at top of array
                         topIndex -= 1
                         renderedDevices[topIndex] = maybeRenderedDevice
                     Else
                         ; put devices with magical effect at bottom of array
                         renderedDevices[bottomIndex] = maybeRenderedDevice
+                        If (isPanelGag)
+                            panelGagIndex = bottomIndex
+                        EndIf
                         bottomIndex += 1
                     EndIf
                     foundDevices += 1
@@ -732,31 +741,47 @@ Int Function FindAndAnalyzeRenderedDevices(zadLibs ddLibs, FormList interestingD
             EndIf
         EndWhile
         If (foundDevices < zadLockableCount)
-            ; failure, probably some rendered devices are unlocked, restart and find all rendered devices by looking at the whole inventory
+            ; failure, probably some rendered devices are not equipped, restart and find all rendered devices by looking at the whole inventory
             bottomIndex = 0
             topIndex = renderedDevices.Length
+            combinedDeviceFlags = 0
+            panelGagIndex = -1
             index = npc.GetNumItems() - 1 ; start at end to increase chance of early abort
             foundDevices = 0
             While (index >= 0 && bottomIndex < topIndex)
                 Armor maybeRenderedDevice = npc.GetNthForm(index) as Armor
-                If (maybeRenderedDevice != None && maybeRenderedDevice.HasKeyword(zadLockable))
-                    ; found a rendered device
-                    If (maybeRenderedDevice.GetEnchantment() == None && (!hasInterestingDevices || !interestingDevices.HasForm(maybeRenderedDevice)))
-                        ; put devices without magical effect (and also not in "interesting devices" formlist) temporarily at top of array
-                        topIndex -= 1
-                        renderedDevices[topIndex] = maybeRenderedDevice
-                    Else
-                        ; put devices with magical effect at bottom of array
-                        renderedDevices[bottomIndex] = maybeRenderedDevice
-                        bottomIndex += 1
-                    EndIf
-                    foundDevices += 1
-                    If (foundDevices == zadLockableCount)
-                        index = 0 ; found all devices, early abort
+                If (maybeRenderedDevice != None)
+                    Int deviceFlags = AnylyzeMaybeDevice(ddLibs, zadLockable, maybeRenderedDevice, enablePapyrusLogging)
+                    If (deviceFlags > 0)
+                        ; found a rendered device
+                        combinedDeviceFlags = Math.LogicalOr(combinedDeviceFlags, deviceFlags)
+                        Bool isPanelGag = Math.LogicalAnd(deviceFlags, 64) == 64
+                        If (!isPanelGag && Math.LogicalAnd(deviceFlags, 2) == 0)
+                            ; put devices without magical effect temporarily at top of array
+                            topIndex -= 1
+                            renderedDevices[topIndex] = maybeRenderedDevice
+                        Else
+                            ; put devices with magical effect at bottom of array
+                            renderedDevices[bottomIndex] = maybeRenderedDevice
+                            If (isPanelGag)
+                                panelGagIndex = bottomIndex
+                            EndIf
+                            bottomIndex += 1
+                        EndIf
+                        foundDevices += 1
+                        If (foundDevices == zadLockableCount)
+                            index = 0 ; found all devices, early abort
+                        EndIf
                     EndIf
                 EndIf
                 index -= 1
             EndWhile
+        EndIf
+        If (panelGagIndex > 0)
+            ; move panel gag to index 0
+            Armor panelGag = renderedDevices[panelGagIndex]
+            renderedDevices[panelGagIndex] = renderedDevices[0]
+            renderedDevices[0] = panelGag
         EndIf
         index = bottomIndex
         If (index < topIndex)
@@ -774,90 +799,12 @@ Int Function FindAndAnalyzeRenderedDevices(zadLibs ddLibs, FormList interestingD
         renderedDevices[index] = None
         index += 1
     EndWhile
-    ; analyze devices, but only the ones with magical effect
-    ; (assumption: devices without magical effects have none of the special effect DD keywords that we are interested in;
-    ;              devices that do not follow this assumption will still be analyzed if they are in the "interesting devices" form list)
-    Bool useUnarmedCombatPackage = false
-    Bool hasHeavyBondage = false
-    Bool disableKick = !useBoundCombat
-    Bool hasAnimation = false
-    Bool hasPanelGag = false
-    If (bottomIndex > 0)
-        Keyword zadDeviousHeavyBondage = ddLibs.zad_DeviousHeavyBondage
-        index = 0
-        While (index < bottomIndex)
-            If (renderedDevices[index].HasKeyword(zadDeviousHeavyBondage))
-                ; use unarmed combat when wearing heavy bondage and take note of the heavy bondage
-                useUnarmedCombatPackage = true
-                hasHeavyBondage = true
-                hasAnimation = true
-                index = 999
-            Else
-                index += 1
-            EndIf
-        EndWhile
-        If (!useUnarmedCombatPackage)
-            Keyword zadDeviousBondageMittens = ddLibs.zad_DeviousBondageMittens
-            index = 0
-            While (index < bottomIndex)
-                If (renderedDevices[index].HasKeyword(zadDeviousBondageMittens))
-                    ; use unarmed combat when wearing bondage mittens
-                    useUnarmedCombatPackage = true
-                    index = 999
-                Else
-                    index += 1
-                EndIf
-            EndWhile
-        EndIf
-        If (hasHeavyBondage && !disableKick)
-            Keyword zadBoundCombatDisableKick = ddLibs.zad_BoundCombatDisableKick
-            index = 0
-            While (index < bottomIndex)
-                If (renderedDevices[index].HasKeyword(zadBoundCombatDisableKick))
-                    ; take note if not able to kick
-                    disableKick = true
-                    index = 999
-                Else
-                    index += 1
-                EndIf
-            EndWhile
-        EndIf
-        If (!hasAnimation)
-            Keyword zadDeviousPonyGear = ddLibs.zad_DeviousPonyGear
-            Keyword zadDeviousHobbleSkirt = ddLibs.zad_DeviousHobbleSkirt
-            Keyword zadDeviousHobbleSkirtRelaxed = ddLibs.zad_DeviousHobbleSkirtRelaxed
-            index = 0
-            While (index < bottomIndex)
-                If (renderedDevices[index].HasKeyword(zadDeviousPonyGear) || renderedDevices[index].HasKeyword(zadDeviousHobbleSkirt) && !renderedDevices[index].HasKeyword(zadDeviousHobbleSkirtRelaxed))
-                    ; found a device other than heavy bondage that requires animations
-                    hasAnimation = true
-                    index = 999
-                Else
-                    index += 1
-                EndIf
-            EndWhile
-        EndIf
-        If (!hasPanelGag)
-            Keyword zadDeviousGagPanel = ddLibs.zad_DeviousGagPanel
-            index = 0
-            While (index < bottomIndex)
-                If (renderedDevices[index].HasKeyword(zadDeviousGagPanel))
-                    ; found a panel gag, move it to index 0
-                    hasPanelGag = true
-                    If (index != 0)
-                        Armor panelGag = renderedDevices[index]
-                        renderedDevices[index] = renderedDevices[0]
-                        renderedDevices[0] = panelGag
-                    EndIf
-                    index = 999
-                Else
-                    index += 1
-                EndIf
-            EndWhile
-        EndIf
-    EndIf
     ; assemble return value
-    Int flags = bottomIndex ; number of devices with magical effect
+    Bool hasHeavyBondage = Math.LogicalAnd(combinedDeviceFlags, 4) == 4
+    Bool useUnarmedCombatPackage = hasHeavyBondage || Math.LogicalAnd(combinedDeviceFlags, 8) == 8
+    Bool disableKick = !useBoundCombat || Math.LogicalAnd(combinedDeviceFlags, 16) == 16
+    Bool hasAnimation = hasHeavyBondage || Math.LogicalAnd(combinedDeviceFlags, 32) == 32
+    Int flags = bottomIndex
     If (useUnarmedCombatPackage)
         flags += 256 ; use unarmed combat package
     EndIf
@@ -867,8 +814,53 @@ Int Function FindAndAnalyzeRenderedDevices(zadLibs ddLibs, FormList interestingD
     If (hasAnimation)
         flags += 1024 ; has animation
     EndIf
-    If (hasPanelGag)
+    If (panelGagIndex >= 0)
         flags += 2048 ; has panel gag
+    EndIf
+    Return flags
+EndFunction
+
+
+; Analyze an armor that might be a rendered device.
+; Returns an int composed of the following flags:
+;  1 - is rendered device
+; All remaining flags are only set if flag 1 is set:
+;  2 - has magic effect
+;  4 - is heavy bondage
+;  8 - is bondage mittens
+; 16 - disables kicking
+; 32 - is device other than heavy bondage that requires an animation
+; 64 - is panel gag
+; 
+Int Function AnylyzeMaybeDevice(zadLibs ddLibs, Keyword zadLockable, Armor maybeRenderedDevice, Bool enablePapyrusLogging) Global
+    Int flags = StorageUtil.GetIntValue(maybeRenderedDevice, "ddnf_a", -1)
+    If (flags == -1)
+        flags = 0
+        If (maybeRenderedDevice.HasKeyword(zadLockable))
+            flags += 1
+            If (maybeRenderedDevice.GetEnchantment() != None)
+                flags += 2
+            EndIf
+            If (maybeRenderedDevice.HasKeyword(ddLibs.zad_DeviousHeavyBondage))
+                flags += 4
+            EndIf
+            If (maybeRenderedDevice.HasKeyword(ddLibs.zad_DeviousBondageMittens))
+                flags += 8
+            EndIf
+            If (maybeRenderedDevice.HasKeyword(ddLibs.zad_BoundCombatDisableKick))
+                flags += 16
+            EndIf
+            If (maybeRenderedDevice.HasKeyword(ddLibs.zad_DeviousPonyGear) || maybeRenderedDevice.HasKeyword(ddLibs.zad_DeviousHobbleSkirt) || maybeRenderedDevice.HasKeyword(ddLibs.zad_DeviousHobbleSkirtRelaxed))
+                flags += 32
+            EndIf
+            If (maybeRenderedDevice.HasKeyword(ddLibs.zad_DeviousGagPanel))
+                flags += 64
+            EndIf
+            StorageUtil.SetIntValue(maybeRenderedDevice, "ddnf_a", flags) ; only cache in StorageUtil if it is a device
+            If (enablePapyrusLogging)
+                Debug.Trace("[DDNF] StorageUtil: SetIntValue(" + GetFormIdAsString(maybeRenderedDevice) + ", ddnf_a, " + flags + ")")
+            EndIf
+        EndIf
     EndIf
     Return flags
 EndFunction
