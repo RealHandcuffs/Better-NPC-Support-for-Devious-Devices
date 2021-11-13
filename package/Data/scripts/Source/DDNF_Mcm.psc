@@ -10,6 +10,8 @@ Int Property OptionScannerFrequency Auto
 Int Property OptionMaxFixupsPerThreeSeconds Auto
 Int Property OptionRestoreOriginalOutfit Auto
 
+Int Property OptionClearCachedDataOnMenuClose Auto
+
 Int Property OptionEnablePapyrusLogging Auto
 Int Property OptionFixupOnMenuClose Auto
 
@@ -30,6 +32,9 @@ Event OnPageReset(string page)
     OptionScannerFrequency = AddSliderOption("Scan for NPCs every", MainQuest.SecondsBetweenScans, a_formatString = "{0} seconds", a_flags = flags)
     OptionMaxFixupsPerThreeSeconds = AddSliderOption("NPCs to process/3 seconds", MainQuest.NpcTracker.MaxFixupsPerThreeSeconds, a_flags = flags)
     OptionRestoreOriginalOutfit = AddToggleOption("Restore original outfits", MainQuest.NpcTracker.RestoreOriginalOutfit, a_flags = flags)
+
+    AddHeaderOption("Maintenance")
+    OptionClearCachedDataOnMenuClose = AddToggleOption("Clear cached data on menu close", false, a_flags = flags)
 
     AddHeaderOption("Debug Settings")
     OptionEnablePapyrusLogging = AddToggleOption("Enable payprus logging", MainQuest.NpcTracker.EnablePapyrusLogging)
@@ -128,6 +133,9 @@ Event OnOptionSelect(Int option)
         Else
             Debug.Trace("[DDNF] MCM: Disabled Papyrus logging.")
         EndIf
+    ElseIf (option == OptionClearCachedDataOnMenuClose)
+        SetToggleOptionValue(OptionClearCachedDataOnMenuClose, true)
+        RegisterForSingleUpdate(0.1)
     ElseIf (option == OptionFixupOnMenuClose)
         Actor cursorActor = Game.GetCurrentCrosshairRef() as Actor
         If (cursorActor == None)
@@ -172,4 +180,8 @@ Event OnOptionSliderAccept(Int option, Float value)
             Debug.Trace("[DDNF] MCM: Set max fixups/3 seconds to " + MainQuest.NpcTracker.MaxFixupsPerThreeSeconds + ".")
         EndIf
     EndIf
+EndEvent
+
+Event OnUpdate()
+    MainQuest.NpcTracker.Clear(true)
 EndEvent

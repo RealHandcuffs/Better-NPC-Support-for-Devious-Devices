@@ -97,7 +97,7 @@ Event OnUpdate()
         ; otherwise slow down
         runInFastMode = index == addedNpcCount && addedNpcCount > 0
     Else
-        NpcTracker.Clear()
+        NpcTracker.Clear(true)
         runInFastMode = false
     EndIf
     If (runInFastMode)

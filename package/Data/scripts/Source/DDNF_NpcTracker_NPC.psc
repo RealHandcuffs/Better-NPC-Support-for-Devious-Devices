@@ -71,12 +71,13 @@ Function ForceRefTo(ObjectReference akNewRef) ; override
         _ignoreNotEquippedInNextFixup = false
         _fixupLock = false
         _lastFixupRealTime = 0.0
-        RegisterForFixup()
         ; we will receive OnDeath event when NPC dies from now on, but they might already be dead
         If (npc.IsDead())
             Clear()
         ElseIf (!IsParentCellAttached(npc)) ; same for OnCellDetach
             RegisterForFixup(8.0) ; reschedule
+        Else
+            RegisterForFixup()
         EndIf
     EndIf
 EndFunction
@@ -185,10 +186,9 @@ Function HandleItemAddedRemoved(Form akBaseItem)
             Armor panelGag = _renderedDevices[0]
             If (npc.IsEquipped(panelGag))
                 npc.UnequipItem(panelGag, abPreventEquip=true, abSilent=true)
-            EndIf
-            Utility.Wait(0.017) ; give the game time to fully register the unequip
-            If (npc.GetItemCount(panelGag) > 0) ; safety check
-                npc.EquipItem(panelGag, abPreventRemoval=true, abSilent=true)                
+                If (npc.GetItemCount(panelGag) > 0) ; safety check
+                    npc.EquipItem(panelGag, abPreventRemoval=true, abSilent=true)
+                EndIf
             EndIf
             _fixupLock = false
         EndIf
@@ -460,6 +460,19 @@ Event OnUpdate()
     If (timeSinceLastFixup < 5.0)
         ; do not run fixup on the same NPC more frequently than every 5 seconds real time
         ; this serves as a way to prevent many fixups in case a script is modifying the equipment item by item
+        ; but do a "quick fix" of panel gags because missing panel gag effects are very obvious
+        If (_renderedDevicesFlags != -1 && _hasPanelGag)
+            If (npcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] Quick-fixing panel gag of " + GetFormIdAsString(npc) + " " + npc.GetDisplayName() + " after inventory change.")
+            EndIf
+            Armor panelGag = _renderedDevices[0]
+            If (npc.IsEquipped(panelGag))
+                npc.UnequipItem(panelGag, abPreventEquip=true, abSilent=true)
+                If (npc.GetItemCount(panelGag) > 0) ; safety check
+                    npc.EquipItem(panelGag, abPreventRemoval=true, abSilent=true)
+                EndIf
+            EndIf
+        EndIf
         Float waitTime = 5.0 - timeSinceLastFixup
         If (waitTime < 1.0)
             waitTime = 1.0
@@ -488,7 +501,8 @@ Event OnUpdate()
     ; step one: find and analyze all rendered devices in the inventory of the NPC
     zadLibs ddLibs = npcTracker.DDLibs
     Int renderedDevicesFlags = _renderedDevicesFlags
-    If (renderedDevicesFlags < 0)
+    Bool scanForDevices = renderedDevicesFlags < 0
+    If (scanForDevices)
         ; devices are not known, find and analyze them
         _renderedDevicesFlags = 0
         If (_renderedDevices.Length != 32) ; number of slots
@@ -540,11 +554,8 @@ Event OnUpdate()
 
     ; step two: unequip and reequip all rendered devices to restart the effects
     ; from this point on we need to abort and restart the fixup if something changes
-    Int reequipBitmap = UnequipDevices(npc, _renderedDevices, devicesWithMagicalEffectCount)
-    If (reequipBitmap != 0)
-        Utility.Wait(0.017) ; give the game time to fully register the unequips
-        ReequipDevices(npc, _renderedDevices, reequipBitmap) ; even do this if current state has changed during UnequipDevices!
-        Utility.Wait(0.017) ; give the game time to fully register the equips
+    Int checkBitmap = UnequipAndEquipDevices(npc, _renderedDevices, devicesWithMagicalEffectCount)
+    If (checkBitmap != 0)
         npc.UpdateWeight(0) ; workaround to force the game to correctly evaluate armor addon slots
         If (enablePapyrusLogging)
             Debug.Trace("[DDNF] Updated weight of " + formIdAndName + ".")
@@ -554,7 +565,7 @@ Event OnUpdate()
     If (_ignoreNotEquippedInNextFixup)
         _ignoreNotEquippedInNextFixup = false
     ElseIf (currentState == "AliasOccupied")
-        Bool devicesEquipped = reequipBitmap == 0 || CheckDevicesEquipped(npc, _renderedDevices, reequipBitmap)
+        Bool devicesEquipped = checkBitmap == 0 || CheckDevicesEquipped(npc, _renderedDevices, checkBitmap)
         currentState = GetState()
         If (!devicesEquipped && currentState == "AliasOccupied")
             ; some devices are still not equipped, it is not clear why this happens sometimes
@@ -580,13 +591,15 @@ Event OnUpdate()
 
     ; step three: handle weapons and animation effects
     If (hasAnimation)
-        ; use _mtidle animation to check if animations are applied
         zadBoundCombatScript boundCombat = ddLibs.BoundCombat
         Bool animationIsApplied = false
-        Int fnisAaMtIdleCrc = npc.GetAnimationVariableInt("FNISaa_mtidle_crc")
-        If (fnisAaMtIdleCrc != 0 && fnisAaMtIdleCrc == fnis_aa.GetInstallationCRC())
-            Int fnisAaMtIdle = npc.GetAnimationVariableInt("FNISaa_mtidle")
-            animationIsApplied = IsInFnisGroup(fnisAaMtIdle, boundCombat.ABC_mtidle) || IsInFnisGroup(fnisAaMtIdle, boundCombat.HBC_mtidle) || IsInFnisGroup(fnisAaMtIdle, boundCombat.PON_mtidle)
+        If (!scanForDevices)
+            ; use _mtidle animation to check if animations are already applied
+            Int fnisAaMtIdleCrc = npc.GetAnimationVariableInt("FNISaa_mtidle_crc")
+            If (fnisAaMtIdleCrc != 0 && fnisAaMtIdleCrc == fnis_aa.GetInstallationCRC())
+                Int fnisAaMtIdle = npc.GetAnimationVariableInt("FNISaa_mtidle")
+                animationIsApplied = IsInFnisGroup(fnisAaMtIdle, boundCombat.ABC_mtidle) || IsInFnisGroup(fnisAaMtIdle, boundCombat.HBC_mtidle) || IsInFnisGroup(fnisAaMtIdle, boundCombat.PON_mtidle)
+            EndIf
         EndIf
         If (animationIsApplied)
             ; un/reequipping devices can break the current idle and replace it with the default idle, restart the bound idle
@@ -610,7 +623,6 @@ Event OnUpdate()
             npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
         EndIf
         RegisterForAnimationEvent(npc, "BeginWeaponDraw") ; register even if we think that we are already registered
-        UnequipEquippedArmors(npc, npcTracker.WeaponDisplayArmors, true)
     ElseIf (_useUnarmedCombatPackage)
         UnregisterForAnimationEvent(npc, "BeginWeaponDraw")
         Int dummyWeaponCount = npc.GetItemCount(npcTracker.DummyWeapon)
@@ -667,6 +679,9 @@ Event OnUpdate()
     EndIf
     If (_hasAnimation)
         OnPackageStart(npc.GetCurrentPackage())
+    EndIf
+    If (_useUnarmedCombatPackage)
+        UnequipEquippedArmors(npc, npcTracker.WeaponDisplayArmors, true)
     EndIf
 EndEvent
 
@@ -866,17 +881,18 @@ Int Function AnylyzeMaybeDevice(zadLibs ddLibs, Keyword zadLockable, Armor maybe
 EndFunction
 
 
-; unequip devices and return a bitmap for the devices to reequip
-Int Function UnequipDevices(Actor npc, Armor[] renderedDevices, Int devicesWithMagicalEffectCount) Global
+; unequip and reequip devices, return a bitmap for the devices to check
+Int Function UnequipAndEquipDevices(Actor npc, Armor[] renderedDevices, Int devicesWithMagicalEffectCount) Global
     Int currentBit = 1
-    Int bitmapToEquip = 0
+    Int bitmapToCheck = 0
     Int index = 0
     While (index < renderedDevices.Length && renderedDevices[index] != None)
+        Bool needsReequip = false
         If (npc.IsEquipped(renderedDevices[index]))
             ; unequip devices with magical effects
             If (index < devicesWithMagicalEffectCount)
                 npc.UnequipItem(renderedDevices[index], abPreventEquip=true, abSilent=true)
-                bitmapToEquip = Math.LogicalOr(bitmapToEquip, currentBit)
+                needsReequip = true
             EndIf
         Else
             ; sometimes a conflicting "armor" from another mod is blocking the rendered device
@@ -887,28 +903,16 @@ Int Function UnequipDevices(Actor npc, Armor[] renderedDevices, Int devicesWithM
             If (conflictingItem != None)
                 npc.UnequipItem(conflictingItem, abPreventEquip=true, abSilent=true)
             EndIf
-            bitmapToEquip = Math.LogicalOr(bitmapToEquip, currentBit)
+            needsReequip = true
         EndIf
-        currentBit = Math.LeftShift(currentBit, 1)
-        index += 1
-    EndWhile
-    Return bitmapToEquip
-EndFunction
-
-
-; reequip devices according to the bitmap
-Function ReequipDevices(Actor npc, Armor[] renderedDevices, int bitmapToEquip) Global
-    Int currentBit = 1
-    Int equippedBitmap = 0
-    Int index = 0
-    While (equippedBitmap != bitmapToEquip)
-        If (Math.LogicalAnd(bitmapToEquip, currentBit) != 0)
+        If (needsReequip && npc.GetItemCount(renderedDevices[index]) > 0) ; safety check
             npc.EquipItem(renderedDevices[index], abPreventRemoval=true, abSilent=true)
-            equippedBitmap = Math.LogicalOr(equippedBitmap, currentBit)
+            bitmapToCheck = Math.LogicalOr(bitmapToCheck, currentBit)
         EndIf
         currentBit = Math.LeftShift(currentBit, 1)
         index += 1
     EndWhile
+    Return bitmapToCheck
 EndFunction
 
 

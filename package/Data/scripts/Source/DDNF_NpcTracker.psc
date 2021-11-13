@@ -51,6 +51,8 @@ Function HandleGameLoaded(Bool upgrade)
         ; refresh alias array if doing upgrade, number of aliases may have changed
         Alias[] emptyArray
         _cachedAliases = emptyArray
+        ; clear StorageUtil data
+        ClearStorageUtilData()
     EndIf
     RefreshWeaponDisplayArmors()
     ; notify all alias scripts
@@ -160,7 +162,10 @@ EndFunction
 ;
 ; Remove all tracked NPCs.
 ;
-Function Clear()
+Function Clear(Bool clearStorageUtilData)
+    If (clearStorageUtilData)
+        ClearStorageUtilData()
+    EndIf
     Int index = 0
     Alias[] aliases = GetAliases()
     While (index < aliases.Length)
@@ -168,6 +173,14 @@ Function Clear()
         refAlias.Clear()
         index += 1
     EndWhile
+EndFunction
+
+
+Function ClearStorageUtilData()
+    If (EnablePapyrusLogging)
+        Debug.Trace("[DDNF] StorageUtil: ClearAllPrefix(ddnf_)")
+    EndIf
+    StorageUtil.ClearAllPrefix("ddnf_")
 EndFunction
 
 

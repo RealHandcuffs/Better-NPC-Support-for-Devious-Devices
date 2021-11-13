@@ -89,8 +89,12 @@ Version 0.4 beta 1
 
 Version 0.4 beta 2
 - Add special handling for panel gags
-- One more very minor performance optimizatio
+- One more very minor performance optimization
 
 Version 0.4 beta 3
 - Check keywords of all devices, not just the ones with magic effects
 - Use StorageUtil to speed up analysis of equipped devices by caching information for each "rendered device" that is encountered
+
+Version 0.4 beta 4
+- Add option to clear all cached data to MCM; this can be used for example after an update to DD that changes keywords of existing devices (not expected)
+- Apply code changes to reduce the chance of race conditions leading to wrong animation sets or orphaned rendered devices
