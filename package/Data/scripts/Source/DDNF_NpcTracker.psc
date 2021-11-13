@@ -25,6 +25,7 @@ Bool Property RestoreOriginalOutfit Auto
 Float Property MaxFixupsPerThreeSeconds = 3.0 Auto
 
 Alias[] _cachedAliases ; performance optimization
+Form[] _cachedNpcs ; performance optimization
 Int _attemptedFixupsInPeriod
 
 
@@ -43,14 +44,31 @@ Alias[] Function GetAliases()
 EndFunction
 
 
+Form[] Function GetNpcs()
+    If (_cachedNpcs.Length == 0)
+        Alias[] aliases = GetAliases()
+        Form[] npcs = Utility.CreateFormArray(aliases.Length)
+        Int index = 0
+        While (index < aliases.Length)
+            npcs[index] = (aliases[index] as ReferenceAlias).GetReference()
+            index += 1
+        EndWhile
+        _cachedNpcs = npcs
+    EndIf
+    Return _cachedNpcs
+EndFunction
+
+
 Function HandleGameLoaded(Bool upgrade)
     If (upgrade)
         ; stop further fixups until the upgrade is done
         UnregisterForUpdate()
         _attemptedFixupsInPeriod = 9999
-        ; refresh alias array if doing upgrade, number of aliases may have changed
-        Alias[] emptyArray
-        _cachedAliases = emptyArray
+        ; refresh alias array/npc array if doing upgrade, number of aliases may have changed
+        Alias[] emptyAliasArray
+        _cachedAliases = emptyAliasArray
+        Form[] emptyFormArray
+        _cachedNpcs = emptyFormArray
         ; clear StorageUtil data
         ClearStorageUtilData()
     EndIf
@@ -58,6 +76,7 @@ Function HandleGameLoaded(Bool upgrade)
     ; notify all alias scripts
     Int index = 0
     Alias[] aliases = GetAliases()
+    Form[] npcs = GetNpcs()
     While (index < aliases.Length)
         (aliases[index] as DDNF_NpcTracker_NPC).HandleGameLoaded(upgrade)
         index += 1
@@ -111,19 +130,15 @@ EndFunction
 ;
 ; Queue a NPC for fixup. This will add the NPC to the tracked NPCs if necessary.
 ;
-Bool Function QueueForFixup(Actor npc)
-    If (npc.HasKeyword(TrackingKeyword))
-        Int index = 0
+Int Function QueueForFixup(Actor npc)
+    Form[] npcs = GetNpcs()
+    Int index = npcs.Find(npc)
+    If (index >= 0)
         Alias[] aliases = GetAliases()
-        While (index < aliases.Length)
-            ReferenceAlias refAlias = aliases[index] as ReferenceAlias
-            If (refAlias.GetReference() == npc)
-                (refAlias as DDNF_NpcTracker_NPC).OnCellDetach()
-                (refAlias as DDNF_NpcTracker_NPC).OnCellAttach()
-                Return true
-            EndIf
-            index += 1
-        EndWhile
+        ReferenceAlias refAlias = aliases[index] as ReferenceAlias
+        (refAlias as DDNF_NpcTracker_NPC).OnCellDetach()
+        (refAlias as DDNF_NpcTracker_NPC).OnCellAttach()
+        Return index
     EndIf
     Return Add(npc)
 EndFunction
@@ -132,30 +147,36 @@ EndFunction
 ; Add a NPC to the tracked NPCs.
 ; Caller should check that the NPC is alive and loaded; failing that will not
 ; cause problems though, it will just needlessly cause some script load.
-; Returns true if the actor was is tracked (either newly, or already was).
+; Returns the index if the actor was is tracked (either newly, or already was), -1 on failure
 ;
-Bool Function Add(Actor npc)
-    ; find a free alias and put the npc into the alias
+Int Function Add(Actor npc)
+    ; check if the NPC is already in an alias
     If (npc == Player) ; catch api misuse
-        Return false
+        Return -1
     EndIf
-    Int index = 0
+    Form[] npcs = GetNpcs()
+    Int index = npcs.Find(npc)
+    If (index >= 0)
+        Return index
+    EndIf
+    ; try to find a free alias and put the NPC into the alias
     Alias[] aliases = GetAliases()
-    While (index < aliases.Length)
-        ReferenceAlias refAlias = aliases[index] as ReferenceAlias
-        If (refAlias.GetReference() == None)
-            If (npc.HasKeyword(TrackingKeyword)) ; check for this as late as possible, i.e. directly before ForceRefIfEmpty
-                Return true
-            EndIf
-            If (refAlias.ForceRefIfEmpty(npc)) ; can fail if the reference has been filled in the meantime
-                Return true
-            EndIf
+    index = npcs.Find(None)
+    While (index >= 0)
+        npcs[index] = npc
+        If ((aliases[index] as ReferenceAlias).ForceRefIfEmpty(npc)) ; can fail if the reference has been filled in the meantime
+            Return index
         EndIf
-        index += 1
+        npcs[index] = (aliases[index] as ReferenceAlias).GetReference() ; fix array
+        index = npcs.Find(npc)
+        If (index >= 0)
+            Return index
+        EndIf
+        index = npcs.Find(None)
     EndWhile
     ; unable to track, all reference aliases were full :(
     ; the mod will probably misbehave but hopefully not in too bad a way
-    Return false
+    Return -1
 EndFunction
 
 
@@ -185,40 +206,47 @@ EndFunction
 
 
 Function HandleDeviceEquipped(Actor akActor, Armor inventoryDevice, Bool checkForNotEquippedBug)
-    If (Add(akActor) && checkForNotEquippedBug)
+    If (Add(akActor) >= 0 && checkForNotEquippedBug)
         ; workaround for the OnContainerChanged event not firing, causing the device to not getting equipped
         ; this seems to be a "random" engine bug and can be fixed by dropping the object
         ; it seems to happen more often (?) if the player has multiple copies of the item, and/or if the item has recently been acquired
         Utility.Wait(2.0)
-        ObjectReference tempRef = Player.PlaceAtMe(inventoryDevice, abInitiallyDisabled = true)
-        zadEquipScript tempDevice = tempRef as zadEquipScript
-        If (tempDevice != None)
-            Armor renderedDevice = tempDevice.deviceRendered
-            Keyword deviceKeyword = tempDevice.zad_DeviousDevice
-            If (renderedDevice != None && deviceKeyword != None && akActor.GetItemCount(renderedDevice) == 0)
-                ; it's not equipped, equip it, but first recheck if inventory device has been removed
-                If (akActor.GetItemCount(inventoryDevice) > 0)
-                    If (EnablePapyrusLogging)
-                        Debug.Trace("[DDNF] Bug workaround: Equipping " + DDNF_NpcTracker_NPC.GetFormIdAsString(inventoryDevice) + " " + inventoryDevice.GetName() + " on " + DDNF_NpcTracker_NPC.GetFormIdAsString(akActor) + " " + akActor.GetDisplayName() + ".")
-                    EndIf
-                    ; sometimes items become "corrupt" and the game will lose the script
-                    ; dropping the item may or may not help
-                    ObjectReference item = akActor.DropObject(inventoryDevice)
-                    If ((item as zadEquipScript) == None)
-                        If (EnablePapyrusLogging)
-                            Debug.Trace("[DDNF] Replacing corrupt device " + DDNF_NpcTracker_NPC.GetFormIdAsString(item) + ".")
-                        EndIf
-                        item.DisableNoWait()
-                        item.Delete()
-                        akActor.AddItem(inventoryDevice, 1, true)
-                    Else
-                        akActor.AddItem(item, 1, true)
-                    EndIf
-                    DDLibs.LockDevice(akActor, inventoryDevice)
+        Armor renderedDevice = StorageUtil.GetFormValue(inventoryDevice, "ddnf_r", None) as Armor
+        If (renderedDevice == None)
+            renderedDevice = DDLibs.GetRenderedDevice(inventoryDevice)
+            If (renderedDevice != None)
+                If (EnablePapyrusLogging)
+                    String inventoryFormId = DDNF_NpcTracker_NPC.GetFormIdAsString(inventoryDevice)
+                    String renderedFormId = DDNF_NpcTracker_NPC.GetFormIdAsString(renderedDevice)
+                    Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + inventoryFormId + ", ddnf_r, " + renderedFormId + ")")
+                    Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + renderedFormId + ", ddnf_i, " + inventoryFormId + ")")
                 EndIf
+                StorageUtil.SetFormValue(inventoryDevice, "ddnf_r", renderedDevice)
+                StorageUtil.SetFormValue(renderedDevice, "ddnf_i", inventoryDevice)
             EndIf
         EndIf
-        tempDevice.Delete()
+        If (renderedDevice != None && akActor.GetItemCount(renderedDevice) == 0)
+            ; it's not equipped, equip it, but first recheck if inventory device has been removed
+            If (akActor.GetItemCount(inventoryDevice) > 0)
+                If (EnablePapyrusLogging)
+                    Debug.Trace("[DDNF] Bug workaround: Equipping " + DDNF_NpcTracker_NPC.GetFormIdAsString(inventoryDevice) + " " + inventoryDevice.GetName() + " on " + DDNF_NpcTracker_NPC.GetFormIdAsString(akActor) + " " + akActor.GetDisplayName() + ".")
+                EndIf
+                ; sometimes items become "corrupt" and the game will lose the script
+                ; dropping the item may or may not help
+                ObjectReference item = akActor.DropObject(inventoryDevice)
+                If ((item as zadEquipScript) == None)
+                    If (EnablePapyrusLogging)
+                        Debug.Trace("[DDNF] Replacing corrupt device " + DDNF_NpcTracker_NPC.GetFormIdAsString(item) + ".")
+                    EndIf
+                    item.DisableNoWait()
+                    item.Delete()
+                    akActor.AddItem(inventoryDevice, 1, true)
+                Else
+                    akActor.AddItem(item, 1, true)
+                EndIf
+                DDLibs.LockDevice(akActor, inventoryDevice)
+            EndIf
+        EndIf
     EndIf
 EndFunction
 
