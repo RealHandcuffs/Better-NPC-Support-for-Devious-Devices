@@ -13,7 +13,10 @@ Int Property OptionRestoreOriginalOutfit Auto
 Int Property OptionClearCachedDataOnMenuClose Auto
 
 Int Property OptionEnablePapyrusLogging Auto
+Int Property OptionNumberOfDevices Auto
 Int Property OptionFixupOnMenuClose Auto
+
+String[] _deviceNames
 
 
 Event OnPageReset(string page)
@@ -43,7 +46,29 @@ Event OnPageReset(string page)
         AddTextOption("NPC under crosshair", DDNF_NpcTracker_NPC.GetFormIdAsString(cursorActor))
         Package cursorActorPackage = cursorActor.GetCurrentPackage()
         If (cursorActorPackage != None)
-            AddTextOption("  Current Package:", DDNF_NpcTracker_NPC.GetFormIdAsString(cursorActorPackage))
+            AddTextOption("  Current package", DDNF_NpcTracker_NPC.GetFormIdAsString(cursorActorPackage))
+        EndIf
+        DDNF_ExternalApi api = DDNF_ExternalApi.Get()
+        Int trackingId = api.GetTrackingId(cursorActor)
+        If (trackingId >= 0)
+            AddTextOption("  Tracking ID", "" + trackingId)
+        Else
+            AddTextOption("  Tracking ID", "(not tracked)")
+        EndIf
+        Armor[] devices = new Armor[32]
+        Int deviceCount = api.GetEquippedDevicesOfAnyNpc(cursorActor, devices)
+        If (deviceCount == 0)
+            OptionNumberOfDevices = AddTextOption("  Devices ", "0")
+        Else
+            If (_deviceNames.Length != deviceCount)
+                _deviceNames = Utility.CreateStringArray(deviceCount)
+            EndIf
+            Int deviceIndex = 0
+            While (deviceIndex < deviceCount)
+                _deviceNames[deviceIndex] = devices[deviceIndex].GetName()
+                deviceIndex += 1
+            EndWhile
+            OptionNumberOfDevices = AddMenuOption("  Devices ", "" + deviceCount)
         EndIf
         OptionFixupOnMenuClose = AddToggleOption("  Queue fixup on menu close", false, a_flags = flags)
     EndIf
@@ -181,6 +206,14 @@ Event OnOptionSliderAccept(Int option, Float value)
         EndIf
     EndIf
 EndEvent
+
+
+Event OnOptionMenuOpen(Int option)
+    If (option == OptionNumberOfDevices)
+        SetMenuDialogOptions(_deviceNames)
+    EndIf
+EndEvent
+
 
 Event OnUpdate()
     MainQuest.NpcTracker.Clear(true)

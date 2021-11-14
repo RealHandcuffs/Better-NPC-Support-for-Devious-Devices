@@ -99,5 +99,10 @@ Version 0.4 beta 4
 - Add option to clear all cached data to MCM; this can be used for example after an update to DD that changes keywords of existing devices (not expected)
 - Apply code changes to reduce the chance of race conditions leading to wrong animation sets or orphaned rendered devices
 
-Version 0.5 beta 5
+Version 0.4 beta 5
 - Further refactoring to improve performance and to make the mod more reactive on changes to NPC inventory by player (container menu)
+
+Version 0.4
+- Add more information to MCM: Show tracking id and equipped devices of NPC under crosshair
+- Add DDNF_ExrernalApi to support other mods getting or equipping devices
+- Some more internal changes

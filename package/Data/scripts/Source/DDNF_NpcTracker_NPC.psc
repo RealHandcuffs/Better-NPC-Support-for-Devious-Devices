@@ -17,8 +17,7 @@ Bool _hasPanelGag
 
 ; variables tracking state of script
 ; there is also a script state, so this is not the whole picture
-Int _skipReequipInNextFixup
-Bool _inventoryModifiedByPlayer
+Bool _fixupHighPriority
 Bool _ignoreNotEquippedInNextFixup
 Bool _fixupLock
 Float _lastFixupRealTime
@@ -37,7 +36,6 @@ Function HandleGameLoaded(Bool upgrade)
             Clear()
         ; also do a safety check in case OnCellDetach was missed somehow
         ElseIf (!IsParentCellAttached(npc))
-            _skipReequipInNextFixup = 0
             RegisterForFixup(8.0)
         EndIf
         _lastFixupRealTime = 0.0 ; reset on game load
@@ -73,8 +71,7 @@ Function ForceRefTo(ObjectReference akNewRef) ; override
         _helpless = false
         _hasAnimation = false
         _hasPanelGag = false
-        _skipReequipInNextFixup = 0
-        _inventoryModifiedByPlayer = false
+        _fixupHighPriority = false
         _ignoreNotEquippedInNextFixup = false
         _fixupLock = false
         _lastFixupRealTime = 0.0
@@ -85,6 +82,11 @@ Function ForceRefTo(ObjectReference akNewRef) ; override
             RegisterForFixup(8.0)
         ElseIf (npc.GetItemCount(npcTracker.DDLibs.zad_Lockable) == 0)
             _renderedDevicesFlags = 0
+            If (_renderedDevices.Length != 32) ; number of slots
+                _renderedDevices = new Armor[32]
+            Else
+                 _renderedDevices[0] = None
+            EndIf
             RegisterForFixup(8.0)
         Else
             RegisterForFixup()
@@ -148,17 +150,14 @@ EndEvent
 
 
 Event OnCellAttach()
-    _skipReequipInNextFixup = 0
     RegisterForFixup()
 EndEvent
 
 Event OnAttachedToCell()
-    _skipReequipInNextFixup = 0
     RegisterForFixup()
 EndEvent
 
 Event OnCellDetach()
-    _skipReequipInNextFixup = 0
     RegisterForFixup(8.0) ; the update will call Clear() if still not loaded
 EndEvent
 
@@ -179,7 +178,7 @@ Function HandleItemAddedRemoved(Form akBaseItem, ObjectReference akSourceDestCon
     DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
     If (npc != None && akBaseItem != npcTracker.DummyWeapon) ; we take care to add/remove DummyWeapon only in situations where it cannot break devices
         If (akSourceDestContainer == npcTracker.Player)
-            _inventoryModifiedByPlayer = true
+            _fixupHighPriority = true ; player has inventory of NPC open and is looking at NPC directly
         EndIf
         Armor maybeArmor = akBaseItem as Armor
         Float delayOverride = -1
@@ -207,12 +206,11 @@ Function HandleItemAddedRemoved(Form akBaseItem, ObjectReference akSourceDestCon
             If (ddModified)
                 ; a device has been added or removed, we need to rescan for devices
                 _renderedDevicesFlags = -1
-                If (!_inventoryModifiedByPlayer)
+                If (!_fixupHighPriority)
                     delayOverride = 2 ; give DD library more time to process the change
                 EndIf
             EndIf
         EndIf
-        _skipReequipInNextFixup = 0
         If (delayOverride >= 0)
             RegisterForFixup(delayOverride)
         Else
@@ -273,7 +271,6 @@ Event OnObjectUnequipped(Form akBaseObject, ObjectReference akReference)
                 ; a device was unequipped, check if we need to re-equip it
                 Actor npc = GetReference() as Actor
                 If (npc != None && !npc.IsEquipped(maybeArmor) && npc.GetItemCount(maybeArmor) > 0)
-                    _skipReequipInNextFixup = 0
                     RegisterForFixup()
                 EndIf
             EndIf
@@ -403,7 +400,7 @@ Function RegisterForFixup(Float delay = 1.0) ; 1.0 is usually a good compromise 
     ; 3. it is an async operation, so when the scanner calls ForceRefIfEmpty it does not have to wait for the fixup
 
     GotoState("AliasOccupiedWaitingForFixup")
-    If (_inventoryModifiedByPlayer && delay == 1.0)
+    If (_fixupHighPriority && delay == 1.0)
         RegisterForSingleUpdate(0.017) ; override default delay if inventory modified by player
     Else
         RegisterForSingleUpdate(delay)
@@ -454,8 +451,8 @@ Event OnUpdate()
         ; do not run fixup on the same NPC more frequently than every 5 seconds real time
         ; this serves as a way to prevent many fixups in case a script is modifying the equipment item by item
         Float waitTime = 5.0 - timeSinceLastFixup
-        If (waitTime < 1.0)
-            waitTime = 1.0
+        If (waitTime < 0.5)
+            waitTime = 0.5
         EndIf
         _fixupLock = false
         If (enablePapyrusLogging)
@@ -477,7 +474,7 @@ Event OnUpdate()
         Debug.Trace("[DDNF] Fixing up devices of " + formIdAndName + ".")
     EndIf
     GotoState("AliasOccupied") ; we know the alias is not empty
-    _inventoryModifiedByPlayer = false
+    _fixupHighPriority = false
 
     ; step one: find and analyze all rendered devices in the inventory of the NPC
     zadLibs ddLibs = npcTracker.DDLibs
@@ -526,6 +523,15 @@ Event OnUpdate()
         Else
             npc.SetFactionRank(npcTracker.DeviceTargets, 0)
         EndIf
+    ElseIf (_renderedDevices[0] == None)
+        ; no devices present, remove NPC from alias
+        npc.RemoveFromFaction(npcTracker.DeviceTargets)
+        _fixupLock = false
+        If (enablePapyrusLogging)
+            Debug.Trace("[DDNF] Succeeded fixing up devices of " + formIdAndName + ", no devices found.")
+        EndIf
+        Clear()
+        Return
     EndIf
     Int devicesWithMagicalEffectCount = Math.LogicalAnd(renderedDevicesFlags, 255)
     Bool useUnarmedCombatPackage = Math.LogicalAnd(renderedDevicesFlags, 256)
@@ -535,8 +541,16 @@ Event OnUpdate()
 
     ; step two: unequip and reequip all rendered devices to restart the effects
     ; from this point on we need to abort and restart the fixup if something changes
-    Int checkBitmap = UnequipAndEquipDevices(npc, _renderedDevices, devicesWithMagicalEffectCount, _skipReequipInNextFixup)
-    _skipReequipInNextFixup = 0
+    If (hasPanelGag != _hasPanelGag)
+        ; fix panel gag factions before un/reequipping devices as it determines the visual effect
+        Faction panelGagFaction = ddLibs.zadGagPanelFaction
+        If (hasPanelGag && npc.GetFactionRank(panelGagFaction) <= -1)
+            npc.SetFactionRank(panelGagFaction, 1) ; fix missing faction membership, caused by mods that directly manipulate devices like DDe
+        ElseIf (!hasPanelGag && npc.GetFactionRank(panelGagFaction) >= 0)
+            npc.RemoveFromFaction(panelGagFaction) ; dito
+        EndIf
+    EndIf
+    Int checkBitmap = UnequipAndEquipDevices(npc, _renderedDevices, devicesWithMagicalEffectCount)
     If (checkBitmap != 0)
         npc.UpdateWeight(0) ; workaround to force the game to correctly evaluate armor addon slots
         If (enablePapyrusLogging)
@@ -641,14 +655,6 @@ Event OnUpdate()
     EndIf
     If (factionsModified)
         npc.EvaluatePackage()
-    EndIf
-    If (hasPanelGag != _hasPanelGag)
-        Faction panelGagFaction = ddLibs.zadGagPanelFaction
-        If (hasPanelGag && npc.GetFactionRank(panelGagFaction) <= -1)
-            npc.SetFactionRank(panelGagFaction, 1) ; fix missing faction membership, caused by mods that directly manipulate devices like DDe
-        ElseIf (!hasPanelGag && npc.GetFactionRank(panelGagFaction) >= 0)
-            npc.RemoveFromFaction(panelGagFaction) ; dito
-        EndIf
     EndIf
     _hasAnimation = hasAnimation
     _lastFixupRealTime = Utility.GetCurrentRealTime()
@@ -849,7 +855,7 @@ EndFunction
 
 
 ; unequip and reequip devices, return a bitmap for the devices to check
-Int Function UnequipAndEquipDevices(Actor npc, Armor[] renderedDevices, Int devicesWithMagicalEffectCount, Int devicesToSkipCount) Global
+Int Function UnequipAndEquipDevices(Actor npc, Armor[] renderedDevices, Int devicesWithMagicalEffectCount) Global
     Int currentBit = 1
     Int bitmapToCheck = 0
     Int index = 0
@@ -857,7 +863,7 @@ Int Function UnequipAndEquipDevices(Actor npc, Armor[] renderedDevices, Int devi
         Bool needsReequip = false
         If (npc.IsEquipped(renderedDevices[index]))
             ; unequip devices with magical effects
-            If (index < devicesWithMagicalEffectCount && index >= devicesToSkipCount)
+            If (index < devicesWithMagicalEffectCount)
                 npc.UnequipItem(renderedDevices[index], abPreventEquip=true, abSilent=true)
                 needsReequip = true
             EndIf
@@ -1044,4 +1050,116 @@ String Function GetHexDigit(Int nibble) Global
     Else
         Return "F"
     EndIf
+EndFunction
+
+
+;
+; Support functions for ExternalApi.psc
+;
+
+Bool Property NpcIsHelpless
+    Bool Function Get()
+        return _helpless
+    EndFunction
+EndProperty
+
+Bool Property NpcHasAnimation
+    Bool Function Get()
+        return _hasAnimation
+    EndFunction
+EndProperty
+
+Bool Property NpcUsesUnarmedCombatAnimations
+    Bool Function Get()
+        return _useUnarmedCombatPackage
+    EndFunction
+EndProperty
+
+Int Function TryGetEquippedDevices(Armor[] outputArray)
+    If (_renderedDevicesFlags < 0)
+        Return -1 ; failure, devices are not known
+    EndIf
+    Int index = 0
+    While(index < _renderedDevices.Length && index < outputArray.Length)
+        Armor renderedDevice = _renderedDevices[index]
+        If (renderedDevice == None)
+            Return index
+        EndIf
+        Armor inventoryDevice = StorageUtil.GetFormValue(renderedDevice, "ddnf_i", None) as Armor
+        If (inventoryDevice == None)
+            Return -1 ; failure, data is not cached
+        EndIf
+        outputArray[index] = inventoryDevice
+        index += 1
+    EndWhile
+    Return index
+EndFunction
+
+Int Function QuickEquipDevices(Armor[] devices, Int count)
+    DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
+    ObjectReference[] tempRefs
+    If (count > 1)
+        Float[]	zeros = new Float[3]
+        zeros[0] = 0
+        zeros[1] = 0
+        zeros[2] = 0
+        Int handle = SpawnerTask.Create()
+        Int index = 0
+        While (index < devices.Length)
+            If (devices[index] != None)
+                SpawnerTask.AddSpawn(handle, devices[index], npcTracker.Player, zeros, zeros, bInitiallyDisabled = true)
+            EndIf
+            Index += 1
+        EndWhile
+        tempRefs = SpawnerTask.Run(handle)
+    ElseIf (count == 1 && devices[0] != None)
+       tempRefs = new ObjectReference[1]
+       tempRefs[1] = npcTracker.Player.PlaceAtMe(devices[0], abInitiallyDisabled = true)
+    EndIf
+    Int equippedCount = 0
+    If (tempRefs.Length > 0)
+        Actor npc = GetReference() as Actor
+        Int index = 0
+        If (npc != None) ; race condition check
+            index = 0
+            While (index < tempRefs.Length)
+                zadEquipScript inventoryDevice = tempRefs[index] as zadEquipScript
+                If (inventoryDevice != None)
+                    Keyword deviceTypeKeyword = inventoryDevice.zad_DeviousDevice
+                    If (npc.GetItemCount(deviceTypeKeyword) == 0)
+                        If (equippedCount == 0)
+                            UnregisterForUpdate() ; prevent concurrent fixup as it is pointless
+                            GotoState("AliasEmpty") ; cheating to disable events
+                        EndIf
+                        If (StorageUtil.GetFormValue(inventoryDevice.deviceInventory, "ddnf_r", None) == None)
+                            If (npcTracker.EnablePapyrusLogging)
+                                String inventoryFormId = DDNF_NpcTracker_NPC.GetFormIdAsString(inventoryDevice.deviceInventory)
+                                String renderedFormId = DDNF_NpcTracker_NPC.GetFormIdAsString(inventoryDevice.deviceRendered)
+                                Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + inventoryFormId + ", ddnf_r, " + renderedFormId + ")")
+                                Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + renderedFormId + ", ddnf_i, " + inventoryFormId + ")")
+                            EndIf
+                            StorageUtil.SetFormValue(inventoryDevice.deviceInventory, "ddnf_r", inventoryDevice.deviceRendered)
+                            StorageUtil.SetFormValue(inventoryDevice.deviceRendered, "ddnf_i", inventoryDevice.deviceInventory)
+                        EndIf
+                        npc.AddItem(inventoryDevice.deviceRendered, 1, true)
+                        npc.AddItem(inventoryDevice.deviceInventory, 1, true)
+                        equippedCount += 1
+                    EndIf
+                EndIf
+                index += 1
+            EndWhile
+            index = 0
+            If (equippedCount > 0)
+                _renderedDevicesFlags = -1
+                _fixupHighPriority = true ; high priority to make the effects start asap
+                _ignoreNotEquippedInNextFixup = 0
+                RegisterForFixup() ; will re-enable events using GotoState("AliasOccupiedWaitingForFixup")
+            EndIf
+        EndIf
+        While (index < tempRefs.Length)
+            tempRefs[index].Delete()
+            index += 1
+        EndWhile
+    EndIf
+    Return equippedCount
 EndFunction
