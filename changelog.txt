@@ -104,5 +104,5 @@ Version 0.4 beta 5
 
 Version 0.4
 - Add more information to MCM: Show tracking id and equipped devices of NPC under crosshair
-- Add DDNF_ExrernalApi to support other mods getting or equipping devices
+- Add DDNF_ExternalApi to support other mods getting or equipping devices
 - Some more internal changes
