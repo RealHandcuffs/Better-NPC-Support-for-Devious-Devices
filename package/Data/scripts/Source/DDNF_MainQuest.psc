@@ -85,7 +85,7 @@ Event OnUpdate()
         While (index < aliases.Length)
             Actor maybeFoundNpc = (aliases[index] as ReferenceAlias).GetReference() as Actor
             If (maybeFoundNpc != None)
-                If (NpcTracker.Add(maybeFoundNpc))
+                If (NpcTracker.Add(maybeFoundNpc) >= 0)
                     addedNpcCount += 1
                 EndIf
             EndIf
@@ -97,7 +97,7 @@ Event OnUpdate()
         ; otherwise slow down
         runInFastMode = index == addedNpcCount && addedNpcCount > 0
     Else
-        NpcTracker.Clear()
+        NpcTracker.Clear(true)
         runInFastMode = false
     EndIf
     If (runInFastMode)

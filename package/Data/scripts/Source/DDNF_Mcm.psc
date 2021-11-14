@@ -10,8 +10,13 @@ Int Property OptionScannerFrequency Auto
 Int Property OptionMaxFixupsPerThreeSeconds Auto
 Int Property OptionRestoreOriginalOutfit Auto
 
+Int Property OptionClearCachedDataOnMenuClose Auto
+
 Int Property OptionEnablePapyrusLogging Auto
+Int Property OptionNumberOfDevices Auto
 Int Property OptionFixupOnMenuClose Auto
+
+String[] _deviceNames
 
 
 Event OnPageReset(string page)
@@ -31,12 +36,41 @@ Event OnPageReset(string page)
     OptionMaxFixupsPerThreeSeconds = AddSliderOption("NPCs to process/3 seconds", MainQuest.NpcTracker.MaxFixupsPerThreeSeconds, a_flags = flags)
     OptionRestoreOriginalOutfit = AddToggleOption("Restore original outfits", MainQuest.NpcTracker.RestoreOriginalOutfit, a_flags = flags)
 
+    AddHeaderOption("Maintenance")
+    OptionClearCachedDataOnMenuClose = AddToggleOption("Clear cached data on menu close", false, a_flags = flags)
+
     AddHeaderOption("Debug Settings")
     OptionEnablePapyrusLogging = AddToggleOption("Enable payprus logging", MainQuest.NpcTracker.EnablePapyrusLogging)
     Actor cursorActor = Game.GetCurrentCrosshairRef() as Actor
     If (cursorActor != None)
         AddTextOption("NPC under crosshair", DDNF_NpcTracker_NPC.GetFormIdAsString(cursorActor))
-        OptionFixupOnMenuClose = AddToggleOption("Queue fixup on menu close", false, a_flags = flags)
+        Package cursorActorPackage = cursorActor.GetCurrentPackage()
+        If (cursorActorPackage != None)
+            AddTextOption("  Current package", DDNF_NpcTracker_NPC.GetFormIdAsString(cursorActorPackage))
+        EndIf
+        DDNF_ExternalApi api = DDNF_ExternalApi.Get()
+        Int trackingId = api.GetTrackingId(cursorActor)
+        If (trackingId >= 0)
+            AddTextOption("  Tracking ID", "" + trackingId)
+        Else
+            AddTextOption("  Tracking ID", "(not tracked)")
+        EndIf
+        Armor[] devices = new Armor[32]
+        Int deviceCount = api.GetEquippedDevicesOfAnyNpc(cursorActor, devices)
+        If (deviceCount == 0)
+            OptionNumberOfDevices = AddTextOption("  Devices ", "0")
+        Else
+            If (_deviceNames.Length != deviceCount)
+                _deviceNames = Utility.CreateStringArray(deviceCount)
+            EndIf
+            Int deviceIndex = 0
+            While (deviceIndex < deviceCount)
+                _deviceNames[deviceIndex] = devices[deviceIndex].GetName()
+                deviceIndex += 1
+            EndWhile
+            OptionNumberOfDevices = AddMenuOption("  Devices ", "" + deviceCount)
+        EndIf
+        OptionFixupOnMenuClose = AddToggleOption("  Queue fixup on menu close", false, a_flags = flags)
     EndIf
 EndEvent
 
@@ -124,6 +158,9 @@ Event OnOptionSelect(Int option)
         Else
             Debug.Trace("[DDNF] MCM: Disabled Papyrus logging.")
         EndIf
+    ElseIf (option == OptionClearCachedDataOnMenuClose)
+        SetToggleOptionValue(OptionClearCachedDataOnMenuClose, true)
+        RegisterForSingleUpdate(0.1)
     ElseIf (option == OptionFixupOnMenuClose)
         Actor cursorActor = Game.GetCurrentCrosshairRef() as Actor
         If (cursorActor == None)
@@ -168,4 +205,16 @@ Event OnOptionSliderAccept(Int option, Float value)
             Debug.Trace("[DDNF] MCM: Set max fixups/3 seconds to " + MainQuest.NpcTracker.MaxFixupsPerThreeSeconds + ".")
         EndIf
     EndIf
+EndEvent
+
+
+Event OnOptionMenuOpen(Int option)
+    If (option == OptionNumberOfDevices)
+        SetMenuDialogOptions(_deviceNames)
+    EndIf
+EndEvent
+
+
+Event OnUpdate()
+    MainQuest.NpcTracker.Clear(true)
 EndEvent
