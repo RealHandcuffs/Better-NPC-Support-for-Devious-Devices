@@ -111,4 +111,4 @@ Version 0.5 beta 1
 - Prevent NPCs with equipped devices from becoming bard audience
 - Allow the player to manipulate NPC's panel gags by removing/inserting plug
 - Allow the player to lock NPC's DCUR rubber gloves with D-links
-- Fix unlocking PNC's DCUR locker rubber gloves (DCUR assumes it is only worn by player)
+- Fix unlocking NPC's DCUR locked rubber gloves (DCUR assumes it is only worn by player)
