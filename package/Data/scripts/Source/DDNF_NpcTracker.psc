@@ -260,7 +260,7 @@ EndFunction
 
 
 Function HandleDeviceSelectedInContainerMenu(Actor npc, Armor inventoryDevice, Armor renderedDevice)
-    If (!AllowManipulationOfDevices || inventoryDevice.HasKeyword(ddLibs.zad_QuestItem) || inventoryDevice.HasKeyword(ddLibs.zad_BlockGeneric))
+    If (!AllowManipulationOfDevices || inventoryDevice.HasKeyword(ddLibs.zad_BlockGeneric) || inventoryDevice.HasKeyword(ddLibs.zad_QuestItem))
         Return ; do not manipulate quest devices
     EndIf
     If (_dcurSpecialHandlingDevices[0] != None)

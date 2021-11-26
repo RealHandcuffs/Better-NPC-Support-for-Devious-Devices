@@ -115,6 +115,30 @@ Int Function GetEquippedDevicesOfAnyNpc(Actor npc, Armor[] outputArray)
     Return ScanForEquippedDevices(npc, outputArray)
 EndFunction
 
+
+;
+; Get the rendered device for the given inventory device.
+;
+Armor Function GetRenderedDevice(Armor inventoryDevice) Global
+    Armor renderedDevice = StorageUtil.GetFormValue(inventoryDevice, "ddnf_r", None) as Armor
+    If (renderedDevice == None)
+        DDNF_NpcTracker tracker = (DDNF_ExternalApi.Get() as Quest) as DDNF_NpcTracker
+        renderedDevice = tracker.DDLibs.GetRenderedDevice(inventoryDevice)
+        If (renderedDevice != None)
+            If (tracker.EnablePapyrusLogging)
+                String inventoryFormId = DDNF_NpcTracker_NPC.GetFormIdAsString(inventoryDevice)
+                String renderedFormId = DDNF_NpcTracker_NPC.GetFormIdAsString(renderedDevice)
+                Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + inventoryFormId + ", ddnf_r, " + renderedFormId + ")")
+                Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + renderedFormId + ", ddnf_i, " + inventoryFormId + ")")
+            EndIf
+            StorageUtil.SetFormValue(inventoryDevice, "ddnf_r", renderedDevice)
+            StorageUtil.SetFormValue(renderedDevice, "ddnf_i", inventoryDevice)
+        EndIf
+    EndIf
+    Return renderedDevice
+EndFunction
+
+
 ;
 ; Quick-equip devices on a currently tracked NPC.
 ; This will partially bypass the Devious Devices API; as a consequence it will be faster but less safe and not

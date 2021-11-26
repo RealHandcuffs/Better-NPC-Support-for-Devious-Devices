@@ -1,4 +1,4 @@
-;
+
 ; See comment in DDNF_NpcTracker for the purpose of this script.
 ; We do not add properties to this script as there are a lot of instances.
 ; Instead properties are added to DDNF_NpcTracker.
@@ -80,7 +80,7 @@ Function ForceRefTo(ObjectReference akNewRef) ; override
             Clear()
         ElseIf (!IsParentCellAttached(npc)) ; same for OnCellDetach
             RegisterForFixup(8.0)
-        ElseIf (npc.GetItemCount(npcTracker.DDLibs.zad_Lockable) == 0)
+        ElseIf (npc.GetItemCount(npcTracker.DDLibs.zad_Lockable) == 0 && npc.GetItemCount(npcTracker.DDLibs.zad_DeviousPlug) == 0)
             _renderedDevicesFlags = 0
             If (_renderedDevices.Length != 32) ; number of slots
                 _renderedDevices = new Armor[32]
@@ -199,7 +199,7 @@ Function HandleItemAddedRemoved(Form akBaseItem, ObjectReference akSourceDestCon
                         StorageUtil.SetFormValue(maybeArmor, "ddnf_r", renderedDevice)
                         StorageUtil.SetFormValue(renderedDevice, "ddnf_i", maybeArmor)
                     EndIf
-                ElseIf (maybeArmor.HasKeyword(ddLibs.zad_Lockable))
+                ElseIf (maybeArmor.HasKeyword(ddLibs.zad_Lockable) || maybeArmor.HasKeyword(ddLibs.zad_DeviousPlug))
                     ddModified = true
                 EndIf
             EndIf
@@ -267,7 +267,7 @@ Event OnObjectUnequipped(Form akBaseObject, ObjectReference akReference)
         Armor maybeArmor = akBaseObject as Armor
         If (maybeArmor != None)
             DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
-            If (maybeArmor.HasKeyword(npcTracker.DDLibs.zad_Lockable))
+            If (maybeArmor.HasKeyword(npcTracker.DDLibs.zad_Lockable) || maybeArmor.HasKeyword(npcTracker.DDLibs.zad_DeviousPlug))
                 ; a device was unequipped, check if we need to re-equip it
                 Actor npc = GetReference() as Actor
                 If (npc != None && !npc.IsEquipped(maybeArmor) && npc.GetItemCount(maybeArmor) > 0)
@@ -706,8 +706,10 @@ Int Function FindAndAnalyzeRenderedDevices(zadLibs ddLibs, Bool useBoundCombat, 
     Int index = 0
     Keyword zadLockable = ddLibs.zad_Lockable
     Int zadLockableCount = npc.GetItemCount(zadLockable)
+    Keyword zadDeviousPlug = ddLibs.zad_DeviousPlug
+    Int zadDeviousPlugCount = npc.GetItemCount(zadDeviousPlug)
     Int combinedDeviceFlags = 0
-    If (zadLockableCount > 0)
+    If (zadLockableCount > 0 || zadDeviousPlugCount > 0)
         Int foundDevices = 0
         ; first try to find all rendered devices by looking at the worn devices, 90% of the time this works
         Int remainingSlots = 0xffffffff
@@ -718,7 +720,7 @@ Int Function FindAndAnalyzeRenderedDevices(zadLibs ddLibs, Bool useBoundCombat, 
             Else
                 Int slotMask = maybeRenderedDevice.GetSlotMask()
                 remainingSlots = Math.LogicalAnd(remainingSlots, Math.LogicalNot(slotMask))
-                Int deviceFlags = AnylyzeMaybeDevice(ddLibs, zadLockable, maybeRenderedDevice, enablePapyrusLogging)
+                Int deviceFlags = AnylyzeMaybeDevice(ddLibs, zadLockable, zadLockableCount > 0, zadDeviousPlug, zadDeviousPlugCount > 0, maybeRenderedDevice, true, enablePapyrusLogging) ; only use cached value
                 If (deviceFlags > 0)
                     ; found a rendered device
                     combinedDeviceFlags = Math.LogicalOr(combinedDeviceFlags, deviceFlags)
@@ -732,13 +734,13 @@ Int Function FindAndAnalyzeRenderedDevices(zadLibs ddLibs, Bool useBoundCombat, 
                         bottomIndex += 1
                     EndIf
                     foundDevices += 1
-                    If (foundDevices == zadLockableCount)
+                    If (foundDevices == zadLockableCount + zadDeviousPlugCount)
                         remainingSlots = 0 ; found all devices, early abort
                     EndIf
                 EndIf
             EndIf
         EndWhile
-        If (foundDevices < zadLockableCount)
+        If (foundDevices < zadLockableCount + zadDeviousPlugCount)
             ; failure, probably some rendered devices are not equipped, restart and find all rendered devices by looking at the whole inventory
             bottomIndex = 0
             topIndex = renderedDevices.Length
@@ -748,7 +750,7 @@ Int Function FindAndAnalyzeRenderedDevices(zadLibs ddLibs, Bool useBoundCombat, 
             While (index >= 0 && bottomIndex < topIndex)
                 Armor maybeRenderedDevice = npc.GetNthForm(index) as Armor
                 If (maybeRenderedDevice != None)
-                    Int deviceFlags = AnylyzeMaybeDevice(ddLibs, zadLockable, maybeRenderedDevice, enablePapyrusLogging)
+                    Int deviceFlags = AnylyzeMaybeDevice(ddLibs, zadLockable, zadLockableCount > 0, zadDeviousPlug, zadDeviousPlugCount > 0, maybeRenderedDevice, false, enablePapyrusLogging) ; analyze if not cached
                     If (deviceFlags > 0)
                         ; found a rendered device
                         combinedDeviceFlags = Math.LogicalOr(combinedDeviceFlags, deviceFlags)
@@ -762,7 +764,7 @@ Int Function FindAndAnalyzeRenderedDevices(zadLibs ddLibs, Bool useBoundCombat, 
                             bottomIndex += 1
                         EndIf
                         foundDevices += 1
-                        If (foundDevices == zadLockableCount)
+                        If (foundDevices == zadLockableCount + zadDeviousPlugCount)
                             index = 0 ; found all devices, early abort
                         EndIf
                     EndIf
@@ -820,11 +822,11 @@ EndFunction
 ; 32 - is device other than heavy bondage that requires an animation
 ; 64 - is panel gag
 ; 
-Int Function AnylyzeMaybeDevice(zadLibs ddLibs, Keyword zadLockable, Armor maybeRenderedDevice, Bool enablePapyrusLogging) Global
+Int Function AnylyzeMaybeDevice(zadLibs ddLibs, Keyword zadLockable, Bool checkZadLockable, Keyword zadDeviousPlug, Bool checkZadDeviousPlug, Armor maybeRenderedDevice, Bool useCachedValueOnly, Bool enablePapyrusLogging) Global
     Int flags = StorageUtil.GetIntValue(maybeRenderedDevice, "ddnf_a", -1)
     If (flags == -1)
         flags = 0
-        If (StorageUtil.GetFormValue(maybeRenderedDevice, "ddnf_i", None) != None || maybeRenderedDevice.HasKeyword(zadLockable))
+        If (!useCachedValueOnly && (checkZadLockable && maybeRenderedDevice.HasKeyword(zadLockable)) || (checkZadDeviousPlug && maybeRenderedDevice.HasKeyword(zadDeviousPlug)))
             flags += 1
             If (maybeRenderedDevice.GetEnchantment() != None)
                 flags += 2
