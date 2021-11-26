@@ -219,20 +219,7 @@ Function HandleDeviceEquipped(Actor akActor, Armor inventoryDevice, Bool checkFo
         ; this seems to be a "random" engine bug and can be fixed by dropping the object
         ; it seems to happen more often (?) if the player has multiple copies of the item, and/or if the item has recently been acquired
         Utility.Wait(2.0)
-        Armor renderedDevice = StorageUtil.GetFormValue(inventoryDevice, "ddnf_r", None) as Armor
-        If (renderedDevice == None)
-            renderedDevice = DDLibs.GetRenderedDevice(inventoryDevice)
-            If (renderedDevice != None)
-                If (EnablePapyrusLogging)
-                    String inventoryFormId = DDNF_NpcTracker_NPC.GetFormIdAsString(inventoryDevice)
-                    String renderedFormId = DDNF_NpcTracker_NPC.GetFormIdAsString(renderedDevice)
-                    Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + inventoryFormId + ", ddnf_r, " + renderedFormId + ")")
-                    Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + renderedFormId + ", ddnf_i, " + inventoryFormId + ")")
-                EndIf
-                StorageUtil.SetFormValue(inventoryDevice, "ddnf_r", renderedDevice)
-                StorageUtil.SetFormValue(renderedDevice, "ddnf_i", inventoryDevice)
-            EndIf
-        EndIf
+        Armor renderedDevice = DDNF_NpcTracker.GetRenderedDevice(inventoryDevice, false)
         If (renderedDevice != None && akActor.GetItemCount(renderedDevice) == 0)
             ; it's not equipped, equip it, but first recheck if inventory device has been removed
             If (akActor.GetItemCount(inventoryDevice) > 0)
@@ -273,19 +260,30 @@ Function HandleDeviceSelectedInContainerMenu(Actor npc, Armor inventoryDevice, A
     EndIf
     If (renderedDevice.HasKeyword(ddLibs.zad_DeviousGagPanel))
         ; allow player to remove/insert panel gag plug
-        Int selection = ManipulatePanelGagInstead.Show()
-        If (selection > 0 && EnsureDeviceStillEquippedAfterPlayerSelection(npc, inventoryDevice, renderedDevice))
-            If (selection == 1) ; remove
-                If (npc.GetItemCount(ddLibs.zad_gagPanelPlug) == 0)
-                    npc.AddItem(ddLibs.zad_gagPanelPlug, 1)
+        If (CheckIfUnequipPossible(npc, renderedDevice))
+            Int selection = ManipulatePanelGagInstead.Show()
+            If (selection > 0 && EnsureDeviceStillEquippedAfterPlayerSelection(npc, inventoryDevice, renderedDevice))
+                If (selection == 1) ; remove plug
+                    If (npc.GetItemCount(ddLibs.zad_gagPanelPlug) == 0)
+                        npc.AddItem(ddLibs.zad_gagPanelPlug, 1)
+                    EndIf
+                    npc.SetFactionRank(ddLibs.zadGagPanelFaction, 0)
+                Else ; insert plug
+                    npc.RemoveItem(ddLibs.zad_gagPanelPlug, 1)
+                    npc.SetFactionRank(ddLibs.zadGagPanelFaction, 1)
                 EndIf
-                npc.SetFactionRank(ddLibs.zadGagPanelFaction, 0)
-            Else ; insert
-                npc.RemoveItem(ddLibs.zad_gagPanelPlug, 1)
-                npc.SetFactionRank(ddLibs.zadGagPanelFaction, 1)
             EndIf
         EndIf
     EndIf
+EndFunction
+
+
+Bool Function CheckIfUnequipPossible(Actor npc, Armor renderedDevice)
+    Armor[] devices = new Armor[1]
+    devices[0] = renderedDevice
+    Bool[] unequipPossible = new Bool[1]
+    DDNF_NpcTracker_NPC.CheckIfUnequipPossible(npc, devices, unequipPossible, 1, DDLibs, false)
+    Return unequipPossible[0]
 EndFunction
 
 
@@ -335,3 +333,40 @@ EndFunction
 Event OnUpdate()
     _attemptedFixupsInPeriod = 0 ; reset to zero
 EndEvent
+
+
+DDNF_NpcTracker Function Get() Global
+    Return Game.GetFormFromFile(0x00001827, "DD_NPC_Fixup.esp") as DDNF_NpcTracker
+EndFunction
+
+
+Armor Function GetRenderedDevice(Armor maybeInventoryDevice, Bool fromCacheOnly) Global
+    Armor renderedDevice = StorageUtil.GetFormValue(renderedDevice, "ddnf_r", None) as Armor
+    If (renderedDevice == None && !fromCacheOnly)
+        DDNF_NpcTracker tracker = Get()
+        If (maybeInventoryDevice.HasKeyword(tracker.DDLibs.zad_InventoryDevice))
+            renderedDevice = tracker.DDLibs.GetRenderedDevice(maybeInventoryDevice)
+            If (renderedDevice != None)
+                LinkInventoryDeviceAndRenderedDevice(maybeInventoryDevice, renderedDevice, tracker.EnablePapyrusLogging)
+            EndIf
+        EndIf
+    EndIf
+    Return renderedDevice
+EndFunction
+
+
+Armor Function TryGetInventoryDevice(Armor renderedDevice) Global
+    Return StorageUtil.GetFormValue(renderedDevice, "ddnf_i", None) as Armor
+EndFunction
+
+
+Function LinkInventoryDeviceAndRenderedDevice(Armor inventoryDevice, Armor renderedDevice, Bool enablePapyrusLogging) Global
+    If (enablePapyrusLogging)
+        String inventoryFormId = DDNF_NpcTracker_NPC.GetFormIdAsString(inventoryDevice)
+        String renderedFormId = DDNF_NpcTracker_NPC.GetFormIdAsString(renderedDevice)
+        Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + inventoryFormId + ", ddnf_r, " + renderedFormId + ")")
+        Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + renderedFormId + ", ddnf_i, " + inventoryFormId + ")")
+    EndIf
+    StorageUtil.SetFormValue(inventoryDevice, "ddnf_r", renderedDevice)
+    StorageUtil.SetFormValue(renderedDevice, "ddnf_i", inventoryDevice)
+EndFunction

@@ -82,17 +82,18 @@ EndFunction
 ; The function will add the found devices to outputArray and return the number of devices. The output array
 ; needs to be large enough to hold all found devices.
 ;
-Int Function GetEquippedDevices(Int trackingId, Armor[] outputArray)
+Int Function GetEquippedDevices(Int trackingId, Armor[] outputArray, Keyword optionalFilterKeyword = None)
     If (trackingId >= 0)
-        Alias[] aliases = ((Self as Quest) as DDNF_NpcTracker).GetAliases()
+        DDNF_NpcTracker tracker = (Self as Quest) as DDNF_NpcTracker
+        Alias[] aliases = tracker.GetAliases()
         If (trackingId < aliases.Length)
             DDNF_NpcTracker_NPC npcTracker = aliases[trackingId] as DDNF_NpcTracker_NPC
-            Int count = npcTracker.TryGetEquippedDevices(outputArray)
+            Int count = npcTracker.TryGetEquippedDevices(outputArray, optionalFilterKeyword)
             If (count >= 0)
                 Return count
             EndIf
             Form[] npcs = ((Self as Quest) as DDNF_NpcTracker).GetNpcs()
-            Return ScanForEquippedDevices(npcs[trackingId] as Actor, outputArray)
+            Return DDNF_NpcTracker_NPC.ScanForEquippedInventoryDevices(tracker.DDLibs, npcs[trackingId] as Actor, outputArray, optionalFilterKeyword)
         EndIf
     EndIf
     Return 0
@@ -104,15 +105,16 @@ EndFunction
 ; The function will add the found devices to outputArray and return the number of devices. The output array
 ; needs to be large enough to hold all found devices.
 ;
-Int Function GetEquippedDevicesOfAnyNpc(Actor npc, Armor[] outputArray)
+Int Function GetEquippedDevicesOfAnyNpc(Actor npc, Armor[] outputArray, Keyword optionalFilterKeyword = None)
+    DDNF_NpcTracker tracker = (Self as Quest) as DDNF_NpcTracker
     If (npc != None)
-        Form[] npcs = ((Self as Quest) as DDNF_NpcTracker).GetNpcs()
+        Form[] npcs = tracker.GetNpcs()
         Int trackingId = npcs.Find(npc)
         If (trackingId >= 0)
-            Return GetEquippedDevices(trackingId, outputArray)
+            Return GetEquippedDevices(trackingId, outputArray, optionalFilterKeyword)
         EndIf
     EndIf
-    Return ScanForEquippedDevices(npc, outputArray)
+    Return DDNF_NpcTracker_NPC.ScanForEquippedInventoryDevices(tracker.DDLibs, npc, outputArray, optionalFilterKeyword)
 EndFunction
 
 
@@ -120,22 +122,7 @@ EndFunction
 ; Get the rendered device for the given inventory device.
 ;
 Armor Function GetRenderedDevice(Armor inventoryDevice) Global
-    Armor renderedDevice = StorageUtil.GetFormValue(inventoryDevice, "ddnf_r", None) as Armor
-    If (renderedDevice == None)
-        DDNF_NpcTracker tracker = (DDNF_ExternalApi.Get() as Quest) as DDNF_NpcTracker
-        renderedDevice = tracker.DDLibs.GetRenderedDevice(inventoryDevice)
-        If (renderedDevice != None)
-            If (tracker.EnablePapyrusLogging)
-                String inventoryFormId = DDNF_NpcTracker_NPC.GetFormIdAsString(inventoryDevice)
-                String renderedFormId = DDNF_NpcTracker_NPC.GetFormIdAsString(renderedDevice)
-                Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + inventoryFormId + ", ddnf_r, " + renderedFormId + ")")
-                Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + renderedFormId + ", ddnf_i, " + inventoryFormId + ")")
-            EndIf
-            StorageUtil.SetFormValue(inventoryDevice, "ddnf_r", renderedDevice)
-            StorageUtil.SetFormValue(renderedDevice, "ddnf_i", inventoryDevice)
-        EndIf
-    EndIf
-    Return renderedDevice
+    Return DDNF_NpcTracker.GetRenderedDevice(inventoryDevice, false)
 EndFunction
 
 
@@ -193,45 +180,40 @@ EndFunction
 
 
 ;
-; Internal functions, do not call directly.
+; Try to choose a device that is a good candidate for unequipping on a currently tracked NPC.
+; If unequipSelf is true then this function will assume that the NPC is trrying to unequip the device
+; themselves, if false then this function will assume that somebody else is unequipping it.
+; This will return None if no device can be unequipped.
+; WARNING: This function has to do a complex analysis of all equipped devices and is therefore slow.
 ;
-
-Int Function ScanForEquippedDevices(Actor npc, Armor[] outputArray) Global ; Global because it is slow
-    If (npc == None)
-        Return 0
-    EndIf
-    DDNF_NpcTracker tracker = (DDNF_ExternalApi.Get() as Quest) as DDNF_NpcTracker
-    Keyword zadInventoryDevice = tracker.DDLibs.zad_InventoryDevice
-    Int inventoryDeviceCount = npc.GetItemCount(zadInventoryDevice)
-    Int foundDevices = 0
-    Int outputArrayIndex = 0
-    Int index = npc.GetNumItems() - 1 ; start at end to increase chance of early abort
-    While (foundDevices < inventoryDeviceCount && index >= 0 && outputArrayIndex < outputArray.Length)
-        Armor maybeInventoryDevice = npc.GetNthForm(index) as Armor
-        If (maybeInventoryDevice != None)
-            Armor renderedDevice = StorageUtil.GetFormValue(renderedDevice, "ddnf_r", None) as Armor
-            If (renderedDevice == None && maybeInventoryDevice.HasKeyword(zadInventoryDevice))
-                renderedDevice = tracker.DDLibs.GetRenderedDevice(maybeInventoryDevice)
-                If (renderedDevice != None)
-                    If (tracker.EnablePapyrusLogging)
-                        String inventoryFormId = DDNF_NpcTracker_NPC.GetFormIdAsString(maybeInventoryDevice)
-                        String renderedFormId = DDNF_NpcTracker_NPC.GetFormIdAsString(renderedDevice)
-                        Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + inventoryFormId + ", ddnf_r, " + renderedFormId + ")")
-                        Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + renderedFormId + ", ddnf_i, " + inventoryFormId + ")")
-                    EndIf
-                    StorageUtil.SetFormValue(maybeInventoryDevice, "ddnf_r", renderedDevice)
-                    StorageUtil.SetFormValue(renderedDevice, "ddnf_i", maybeInventoryDevice)
-                EndIf
-            EndIf
-            If (renderedDevice != None && npc.GetItemCount(renderedDevice) > 0)
-                foundDevices += 1
-                If (outputArrayIndex == 0 || outputArray.RFind(maybeInventoryDevice, outputArrayIndex - 1) < 0) ; filter out duplicates
-                    outputArray[outputArrayIndex] = maybeInventoryDevice
-                    outputArrayIndex += 1
-                EndIf
-            EndIf
+Armor Function ChooseDeviceForUnequip(Int trackingId, Bool unequipSelf)
+    If (trackingId >= 0)
+        Alias[] aliases = ((Self as Quest) as DDNF_NpcTracker).GetAliases()
+        If (trackingId < aliases.Length)
+            DDNF_NpcTracker_NPC npcTracker = aliases[trackingId] as DDNF_NpcTracker_NPC
+            Return npcTracker.ChooseDeviceForUnequip(unequipSelf)
         EndIf
-        index -= 1
-    EndWhile
-    Return outputArrayIndex
+    EndIf
+    Return None
+EndFunction
+
+
+;
+; Try to choose a device that is a good candidate for unequipping on any NPC.
+; If unequipSelf is true then this function will assume that the NPC is trrying to unequip the device
+; themselves, if false then this function will assume that somebody else is unequipping it.
+; This will return None if no device can be unequipped.
+; WARNING: This function has to do a complex analysis of all equipped devices and is therefore slow.
+;
+Armor Function ChooseDeviceForUnequipOnAnyNpc(Actor npc, Bool unequipSelf)
+    If (npc == None)
+        Return None ; nothing to do
+    EndIf
+    DDNF_NpcTracker tracker = (Self as Quest) as DDNF_NpcTracker
+    Int trackingId = tracker.Add(npc)
+    If (trackingId < 0)
+        Return None ; not able to track npc
+    EndIf
+    DDNF_NpcTracker_NPC npcTracker = tracker.GetAliases()[trackingId] as DDNF_NpcTracker_NPC
+    Return npcTracker.ChooseDeviceForUnequip(unequipSelf)
 EndFunction

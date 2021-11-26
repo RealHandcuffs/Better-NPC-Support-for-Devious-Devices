@@ -93,27 +93,12 @@ Event OnItemAdded(Form akBaseItem, Int aiItemCount, ObjectReference akItemRefere
         AddInventoryEventFilter(EmptyFormlist)
         Return
     EndIf
+    DDNF_NPCTracker npcTracker = (GetOwningQuest() as DDNF_MainQuest).NpcTracker
     Actor akActor = akSourceContainer as Actor
     Armor maybeInventoryDevice = akBaseItem as Armor
-    Armor renderedDevice = StorageUtil.GetFormValue(maybeInventoryDevice, "ddnf_r", None) as Armor
-    DDNF_NPCTracker npcTracker = (GetOwningQuest() as DDNF_MainQuest).NpcTracker
-    If (akActor != None && maybeInventoryDevice != None && (renderedDevice != None || maybeInventoryDevice.HasKeyword(npcTracker.DDLibs.zad_InventoryDevice)) && !akActor.IsDead())
-        If (renderedDevice == None)
-            renderedDevice = npcTracker.DDLibs.GetRenderedDevice(maybeInventoryDevice)
-            If (renderedDevice != None)
-                If (npcTracker.EnablePapyrusLogging)
-                    String inventoryFormId = DDNF_NpcTracker_NPC.GetFormIdAsString(maybeInventoryDevice)
-                    String renderedFormId = DDNF_NpcTracker_NPC.GetFormIdAsString(renderedDevice)
-                    Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + inventoryFormId + ", ddnf_r, " + renderedFormId + ")")
-                    Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + renderedFormId + ", ddnf_i, " + inventoryFormId + ")")
-                EndIf
-                StorageUtil.SetFormValue(maybeInventoryDevice, "ddnf_r", renderedDevice)
-                StorageUtil.SetFormValue(renderedDevice, "ddnf_i", maybeInventoryDevice)
-            EndIf
-        EndIf
-        If (renderedDevice != None && npcTracker.IsRunning())
-            npcTracker.HandleDeviceSelectedInContainerMenu(akActor, maybeInventoryDevice, renderedDevice)
-        EndIf
+    Armor renderedDevice = DDNF_NPCTracker.GetRenderedDevice(maybeInventoryDevice, false)
+    If (renderedDevice != None && npcTracker.IsRunning())
+        npcTracker.HandleDeviceSelectedInContainerMenu(akActor, maybeInventoryDevice, renderedDevice)
     EndIf
 EndEvent
 
@@ -126,26 +111,13 @@ Event OnItemRemoved(Form akBaseItem, int aiItemCount, ObjectReference akItemRefe
     EndIf
     Actor akActor = akDestContainer as Actor
     Armor maybeInventoryDevice = akBaseItem as Armor
-    Armor renderedDevice = StorageUtil.GetFormValue(maybeInventoryDevice, "ddnf_r", None) as Armor
+    Armor renderedDevice = DDNF_NPCTracker.GetRenderedDevice(maybeInventoryDevice, false)
     DDNF_NPCTracker npcTracker = (GetOwningQuest() as DDNF_MainQuest).NpcTracker
-    If (akActor != None && maybeInventoryDevice != None && (renderedDevice != None || maybeInventoryDevice.HasKeyword(npcTracker.DDLibs.zad_InventoryDevice)) && !akActor.IsDead())
+    If (akActor != None && maybeInventoryDevice != None && renderedDevice != None && !akActor.IsDead())
         ; player trying to equip device on NPC, wait until container menu is closed
-        If (renderedDevice == None)
-            renderedDevice = npcTracker.DDLibs.GetRenderedDevice(maybeInventoryDevice)
-            If (renderedDevice != None)
-                If (npcTracker.EnablePapyrusLogging)
-                    String inventoryFormId = DDNF_NpcTracker_NPC.GetFormIdAsString(maybeInventoryDevice)
-                    String renderedFormId = DDNF_NpcTracker_NPC.GetFormIdAsString(renderedDevice)
-                    Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + inventoryFormId + ", ddnf_r, " + renderedFormId + ")")
-                    Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + renderedFormId + ", ddnf_i, " + inventoryFormId + ")")
-                EndIf
-                StorageUtil.SetFormValue(maybeInventoryDevice, "ddnf_r", renderedDevice)
-                StorageUtil.SetFormValue(renderedDevice, "ddnf_i", maybeInventoryDevice)
-            EndIf
-        EndIf
         Int waitCount = 0
         While (UI.IsMenuOpen("ContainerMenu") && waitCount < 20)
-            Utility.Wait(0.017)
+            Utility.Wait(0.016)
             waitCount += 1 ; really only to prevent endless loop in case IsMenuOpen misbehaves
         EndWhile
         If (npcTracker.IsRunning() && akActor.GetItemCount(maybeInventoryDevice) > 0 && !akActor.IsDead())

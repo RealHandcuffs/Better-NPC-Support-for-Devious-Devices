@@ -183,30 +183,11 @@ Function HandleItemAddedRemoved(Form akBaseItem, ObjectReference akSourceDestCon
         Armor maybeArmor = akBaseItem as Armor
         Float delayOverride = -1
         If (maybeArmor != None)
-            Bool ddModified = StorageUtil.GetFormValue(maybeArmor, "ddnf_i", None) != None || StorageUtil.GetFormValue(maybeArmor, "ddnf_r", None) != None
-            If (!ddModified)
-                zadLibs ddLibs = npcTracker.DDLibs
-                If (maybeArmor.HasKeyword(ddLibs.zad_InventoryDevice))
-                    ddModified = true
-                    Armor renderedDevice = DDLibs.GetRenderedDevice(maybeArmor)
-                    If (renderedDevice != None)
-                        If (npcTracker.EnablePapyrusLogging)
-                            String inventoryFormId = DDNF_NpcTracker_NPC.GetFormIdAsString(maybeArmor)
-                            String renderedFormId = DDNF_NpcTracker_NPC.GetFormIdAsString(renderedDevice)
-                            Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + inventoryFormId + ", ddnf_r, " + renderedFormId + ")")
-                            Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + renderedFormId + ", ddnf_i, " + inventoryFormId + ")")
-                        EndIf
-                        StorageUtil.SetFormValue(maybeArmor, "ddnf_r", renderedDevice)
-                        StorageUtil.SetFormValue(renderedDevice, "ddnf_i", maybeArmor)
-                    EndIf
-                ElseIf (maybeArmor.HasKeyword(ddLibs.zad_Lockable) || maybeArmor.HasKeyword(ddLibs.zad_DeviousPlug))
-                    ddModified = true
-                EndIf
-            EndIf
-            If (ddModified)
+            Bool isInventoryDevice = DDNF_NpcTracker.GetRenderedDevice(maybeArmor, false) != None
+            If (isInventoryDevice || DDNF_NpcTracker.TryGetInventoryDevice(maybeArmor) != None || maybeArmor.HasKeyword(npcTracker.DDLibs.zad_Lockable) || maybeArmor.HasKeyword(npcTracker.DDLibs.zad_DeviousPlug))
                 ; a device has been added or removed, we need to rescan for devices
                 _renderedDevicesFlags = -1
-                If (!_fixupHighPriority)
+                If (isInventoryDevice && !_fixupHighPriority)
                     delayOverride = 2 ; give DD library more time to process the change
                 EndIf
             EndIf
@@ -401,7 +382,7 @@ Function RegisterForFixup(Float delay = 1.0) ; 1.0 is usually a good compromise 
 
     GotoState("AliasOccupiedWaitingForFixup")
     If (_fixupHighPriority && delay == 1.0)
-        RegisterForSingleUpdate(0.017) ; override default delay if inventory modified by player
+        RegisterForSingleUpdate(0.016) ; override default delay if inventory modified by player
     Else
         RegisterForSingleUpdate(delay)
     EndIf
@@ -958,6 +939,7 @@ Bool Function UnequipWeapons(Actor npc, Weapon ignoreWeapon = None) Global
     Return keptIgnoreWeapon
 EndFunction
 
+
 Function UnequipEquippedArmors(Actor npc, FormList maybeEquippedArmors, Bool ignoreShields) Global
     If (!npc.IsEquipped(maybeEquippedArmors))
         Return ; short-circuit
@@ -984,6 +966,237 @@ Function UnequipEquippedArmors(Actor npc, FormList maybeEquippedArmors, Bool ign
         EndIf
     EndWhile
 EndFunction
+
+
+Int Function QuickEquipDevices(Armor[] devices, Int count, Bool equipRenderedDevices)
+    DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
+    ObjectReference[] tempRefs
+    If (count > 1)
+        Float[]	zeros = new Float[3]
+        zeros[0] = 0
+        zeros[1] = 0
+        zeros[2] = 0
+        Int handle = SpawnerTask.Create()
+        Int index = 0
+        While (index < devices.Length)
+            If (devices[index] != None)
+                SpawnerTask.AddSpawn(handle, devices[index], npcTracker.Player, zeros, zeros, bInitiallyDisabled = true)
+            EndIf
+            Index += 1
+        EndWhile
+        tempRefs = SpawnerTask.Run(handle)
+    ElseIf (count == 1 && devices[0] != None)
+       tempRefs = new ObjectReference[1]
+       tempRefs[0] = npcTracker.Player.PlaceAtMe(devices[0], abInitiallyDisabled = true)
+    EndIf
+    Int equippedCount = 0
+    If (tempRefs.Length > 0)
+        Actor npc = GetReference() as Actor
+        Int index = 0
+        If (npc != None) ; race condition check
+            index = 0
+            While (index < tempRefs.Length)
+                zadEquipScript inventoryDevice = tempRefs[index] as zadEquipScript
+                If (inventoryDevice != None)
+                    Keyword deviceTypeKeyword = inventoryDevice.zad_DeviousDevice
+                    If (npc.GetItemCount(deviceTypeKeyword) == 0)
+                        If (equippedCount == 0)
+                            UnregisterForUpdate() ; prevent concurrent fixup as it is pointless
+                            GotoState("AliasEmpty") ; cheating to disable events
+                        EndIf
+                        If (DDNF_NpcTracker.TryGetInventoryDevice(inventoryDevice.deviceRendered) == None)
+                            DDNF_NpcTracker.LinkInventoryDeviceAndRenderedDevice(inventoryDevice.deviceInventory, inventoryDevice.deviceRendered, npcTracker.EnablePapyrusLogging)
+                        EndIf
+                        npc.AddItem(inventoryDevice.deviceRendered, 1, true)
+                        npc.AddItem(inventoryDevice.deviceInventory, 1, true)
+                        if (equipRenderedDevices)
+                            npc.EquipItem(inventoryDevice.deviceRendered, abPreventRemoval=true, abSilent=true)
+                        EndIf
+                        equippedCount += 1
+                    EndIf
+                EndIf
+                index += 1
+            EndWhile
+            index = 0
+            If (equippedCount > 0)
+                If (npcTracker.EnablePapyrusLogging)
+                    Debug.Trace("[DDNF] Quick-Equipped " + equippedCount + " devices on " + GetFormIdAsString(npc) + " " + npc.GetDisplayName() + ".")
+                EndIf
+                _renderedDevicesFlags = -1
+                _fixupHighPriority = true ; high priority to make the effects start asap
+                _ignoreNotEquippedInNextFixup = 0
+                RegisterForFixup() ; will re-enable events using GotoState("AliasOccupiedWaitingForFixup")
+            EndIf
+        EndIf
+        While (index < tempRefs.Length)
+            tempRefs[index].Delete()
+            index += 1
+        EndWhile
+    EndIf
+    Return equippedCount
+EndFunction
+
+
+Armor Function ChooseDeviceForUnequip(Bool unequipSelf)
+    Actor npc = GetReference() as Actor
+    If (npc == None)
+        Return None
+    EndIf
+    DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
+    Armor[] inventoryDevices = new Armor[32]
+    Int deviceCount = TryGetEquippedDevices(inventoryDevices, None)
+    If (deviceCount < 0)
+        deviceCount = ScanForEquippedInventoryDevices(npcTracker.ddLibs, npc, inventoryDevices, None)
+    EndIf
+    Armor[] renderedDevices = new Armor[32]
+    Int index = 0
+    While (index < deviceCount)
+        renderedDevices[index] = DDNF_NpcTracker.GetRenderedDevice(inventoryDevices[index], false)
+        index += 1
+    EndWhile
+    Bool[] unequipPossible = new Bool[32]
+    CheckIfUnequipPossible(npc, renderedDevices, unequipPossible, deviceCount, npcTracker.DDLibs, unequipSelf)
+    Armor[] selectionArray = new Armor[128]
+    Int selectionArrayIndex = 0
+    index = 0
+    While (index < deviceCount && selectionArrayIndex < selectionArray.Length)
+        If (unequipPossible[index])
+            Armor renderedDevice = renderedDevices[index]
+            Int priority = GetPriorityForUnequip(npcTracker.DDLibs, renderedDevices[index])
+            Int priorityIndex = 0
+            While (priorityIndex < priority && selectionArrayIndex < selectionArray.Length)
+                selectionArray[selectionArrayIndex] = renderedDevice
+                selectionArrayIndex += 1
+                priorityIndex += 1
+            EndWhile
+        EndIf
+        index += 1
+    EndWhile
+    If (selectionArrayIndex == 0)
+        Return None
+    EndIf    
+    Return selectionArray[Utility.RandomInt(0, selectionArrayIndex - 1)]
+EndFunction
+
+
+Function CheckIfUnequipPossible(Actor npc, Armor[] renderedDevices, Bool[] output, Int count, zadLibs ddLibs, Bool unequipSelf) GLobal
+    Int[] cachedCounts = new Int[10]
+    cachedCounts[0] = -1 ; zad_DeviousHeavyBondage
+    cachedCounts[1] = -1 ; zad_DeviousBondageMittens
+    cachedCounts[2] = -1 ; zad_DeviousHood
+    cachedCounts[3] = -1 ; zad_DeviousArmbinder + zad_DeviousStraitJacket
+    cachedCounts[4] = -1 ; zad_DeviousBelt
+    cachedCounts[5] = -1 ; zad_DeviousSuit
+    cachedCounts[6] = -1 ; zad_PermitVaginal
+    cachedCounts[7] = -1 ; zad_PermitAnal
+    cachedCounts[8] = -1 ; zad_DeviousBra
+    cachedCounts[9] = -1 ; zad_BraNoBlockPiercings
+    Int index = 0
+    While (index < count)
+        output[index] = CheckUnequipPossibleLoopFn(npc, renderedDevices[index], ddLibs, cachedCounts, unequipSelf)
+        index += 1
+    EndWhile
+EndFunction
+
+
+Bool Function CheckUnequipPossibleLoopFn(Actor npc, Armor renderedDevice, zadLibs ddLibs, Int[] cachedCounts, Bool unequipSelf) Global
+    If (renderedDevice == None)
+        Return false
+    EndIf
+    If (unequipSelf)
+        If (cachedCounts[0] < 0)
+            cachedCounts[0] = npc.GetItemCount(ddLibs.zad_DeviousHeavyBondage)
+        EndIf
+        If (cachedCounts[0] > 0)
+            ; npc needs to get rid of heavy bondage first
+            Return renderedDevice.HasKeyword(ddLibs.zad_DeviousHeavyBondage)
+        EndIf
+        If (cachedCounts[1] < 0)
+            cachedCounts[1] = npc.GetItemCount(ddLibs.zad_DeviousBondageMittens)
+        EndIf
+        If (cachedCounts[1] > 0)
+            ; npc needs to get rid of bondage mittens first
+            Return renderedDevice.HasKeyword(ddLibs.zad_DeviousBondageMittens)
+        EndIf
+    EndIf
+    If (renderedDevice.HasKeyword(ddLibs.zad_DeviousHood))
+        Return true
+    EndIf
+    If (renderedDevice.HasKeyword(ddLibs.zad_DeviousGag) || renderedDevice.HasKeyword(ddLibs.zad_DeviousBlindfold))
+        ; hoods block gags/blindfolds
+        If (cachedCounts[2] < 0)
+            cachedCounts[2] = npc.GetItemCount(ddLibs.zad_DeviousHood)
+        EndIf
+        Return cachedCounts[2] == 0
+    EndIf
+    If (renderedDevice.HasKeyword(ddLibs.zad_DeviousGloves))
+        ; armbinders and strait jackets block gloves
+        If (cachedCounts[3] < 0)
+            cachedCounts[3] = npc.GetItemCount(ddLibs.zad_DeviousArmbinder) + npc.GetItemCount(ddLibs.zad_DeviousStraitJacket)
+        EndIf
+        Return cachedCounts[3] == 0
+    EndIf
+    If (renderedDevice.HasKeyword(ddLibs.zad_DeviousPlug))
+        If (renderedDevice.HasKeyword(ddLibs.zad_DeviousPlugVaginal))
+            ; belts and suit may block vaginal plugs
+            If (cachedCounts[4] < 0)
+                cachedCounts[4] = npc.GetItemCount(ddLibs.zad_DeviousBelt)
+            EndIf
+            If (cachedCounts[5] < 0)
+                cachedCounts[5] = npc.GetItemCount(ddLibs.zad_DeviousSuit)
+            EndIf
+            If (cachedCounts[6] < 0)
+                cachedCounts[6] = npc.GetItemCount(ddLibs.zad_PermitVaginal)
+            EndIf
+            Return (cachedCounts[4] + cachedCounts[5]) == 0 || cachedCounts[6] > 0
+        EndIf
+        If (renderedDevice.HasKeyword(ddLibs.zad_DeviousPlugAnal))
+            ; belts and suit may block anal plugs
+            If (cachedCounts[4] < 0)
+                cachedCounts[4] = npc.GetItemCount(ddLibs.zad_DeviousBelt)
+            EndIf
+            If (cachedCounts[5] < 0)
+                cachedCounts[5] = npc.GetItemCount(ddLibs.zad_DeviousSuit)
+            EndIf
+            If (cachedCounts[7] < 0)
+                cachedCounts[7] = npc.GetItemCount(ddLibs.zad_PermitAnal)
+            EndIf
+            Return (cachedCounts[4] + cachedCounts[5]) == 0 || cachedCounts[7] > 0
+        EndIf
+    EndIf
+    If (renderedDevice.HasKeyword(ddLibs.zad_DeviousPiercingsNipple))
+        ; bras and suit may block nipple piercings
+        If (cachedCounts[8] < 0)
+            cachedCounts[8] = npc.GetItemCount(ddLibs.zad_DeviousBra)
+        EndIf
+        If (cachedCounts[9] < 0)
+            cachedCounts[9] = npc.GetItemCount(ddLibs.zad_BraNoBlockPiercings)
+        EndIf
+        Return (cachedCounts[8] + cachedCounts[5]) == 0 || cachedCounts[9] > 0
+    EndIf
+    Return true    
+EndFunction
+
+
+Int Function GetPriorityForUnequip(zadLibs ddLibs, Armor renderedDevice) Global ; higher is more important
+    If (renderedDevice.HasKeyword(ddLibs.zad_DeviousHeavyBondage))
+        ; first heavy bondage
+        Return 16
+    ElseIf (renderedDevice.HasKeyword(ddLibs.zad_DeviousBondageMittens))
+        ; then mittens
+        Return 6
+    ElseIf (renderedDevice.HasKeyword(ddLibs.zad_DeviousBlindfold) || renderedDevice.HasKeyword(ddLibs.zad_DeviousGag))
+        ; then blindfolds and gags (this includes many hoods)
+        Return 3
+    ElseIf (renderedDevice.HasKeyword(ddLibs.zad_BoundCombatDisableKick))
+        ; then fetters
+        Return 2
+    Else
+        ; then everything else
+        Return 1
+    EndIf
+EndFunction
+
 
 String Function GetFormIdAsString(Form item) Global
     Int modId
@@ -1077,7 +1290,7 @@ Bool Property NpcUsesUnarmedCombatAnimations
     EndFunction
 EndProperty
 
-Int Function TryGetEquippedDevices(Armor[] outputArray)
+Int Function TryGetEquippedDevices(Armor[] outputArray, Keyword optionalKeywordForRenderedDevice)
     If (_renderedDevicesFlags < 0)
         Return -1 ; failure, devices are not known
     EndIf
@@ -1087,87 +1300,39 @@ Int Function TryGetEquippedDevices(Armor[] outputArray)
         If (renderedDevice == None)
             Return index
         EndIf
-        Armor inventoryDevice = StorageUtil.GetFormValue(renderedDevice, "ddnf_i", None) as Armor
-        If (inventoryDevice == None)
-            Return -1 ; failure, data is not cached
+        If (optionalKeywordForRenderedDevice == None || renderedDevice.HasKeyword(optionalKeywordForRenderedDevice))
+            Armor inventoryDevice = DDNF_NpcTracker.TryGetInventoryDevice(renderedDevice)
+            If (inventoryDevice == None)
+                Return -1 ; failure, data is not cached
+            EndIf
+            outputArray[index] = inventoryDevice
+            index += 1
         EndIf
-        outputArray[index] = inventoryDevice
-        index += 1
     EndWhile
     Return index
 EndFunction
 
-Int Function QuickEquipDevices(Armor[] devices, Int count, Bool equipRenderedDevices)
-    DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
-    ObjectReference[] tempRefs
-    If (count > 1)
-        Float[]	zeros = new Float[3]
-        zeros[0] = 0
-        zeros[1] = 0
-        zeros[2] = 0
-        Int handle = SpawnerTask.Create()
-        Int index = 0
-        While (index < devices.Length)
-            If (devices[index] != None)
-                SpawnerTask.AddSpawn(handle, devices[index], npcTracker.Player, zeros, zeros, bInitiallyDisabled = true)
-            EndIf
-            Index += 1
-        EndWhile
-        tempRefs = SpawnerTask.Run(handle)
-    ElseIf (count == 1 && devices[0] != None)
-       tempRefs = new ObjectReference[1]
-       tempRefs[0] = npcTracker.Player.PlaceAtMe(devices[0], abInitiallyDisabled = true)
+Int Function ScanForEquippedInventoryDevices(zadLibs ddLibs, Actor npc, Armor[] outputArray, Keyword optionalKeywordForRenderedDevice) Global ; Global and slow
+    If (npc == None)
+        Return 0
     EndIf
-    Int equippedCount = 0
-    If (tempRefs.Length > 0)
-        Actor npc = GetReference() as Actor
-        Int index = 0
-        If (npc != None) ; race condition check
-            index = 0
-            While (index < tempRefs.Length)
-                zadEquipScript inventoryDevice = tempRefs[index] as zadEquipScript
-                If (inventoryDevice != None)
-                    Keyword deviceTypeKeyword = inventoryDevice.zad_DeviousDevice
-                    If (npc.GetItemCount(deviceTypeKeyword) == 0)
-                        If (equippedCount == 0)
-                            UnregisterForUpdate() ; prevent concurrent fixup as it is pointless
-                            GotoState("AliasEmpty") ; cheating to disable events
-                        EndIf
-                        If (StorageUtil.GetFormValue(inventoryDevice.deviceInventory, "ddnf_r", None) == None)
-                            If (npcTracker.EnablePapyrusLogging)
-                                String inventoryFormId = DDNF_NpcTracker_NPC.GetFormIdAsString(inventoryDevice.deviceInventory)
-                                String renderedFormId = DDNF_NpcTracker_NPC.GetFormIdAsString(inventoryDevice.deviceRendered)
-                                Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + inventoryFormId + ", ddnf_r, " + renderedFormId + ")")
-                                Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + renderedFormId + ", ddnf_i, " + inventoryFormId + ")")
-                            EndIf
-                            StorageUtil.SetFormValue(inventoryDevice.deviceInventory, "ddnf_r", inventoryDevice.deviceRendered)
-                            StorageUtil.SetFormValue(inventoryDevice.deviceRendered, "ddnf_i", inventoryDevice.deviceInventory)
-                        EndIf
-                        npc.AddItem(inventoryDevice.deviceRendered, 1, true)
-                        npc.AddItem(inventoryDevice.deviceInventory, 1, true)
-                        if (equipRenderedDevices)
-                            npc.EquipItem(inventoryDevice.deviceRendered, abPreventRemoval=true, abSilent=true)
-                        EndIf
-                        equippedCount += 1
-                    EndIf
+    Int inventoryDeviceCount = npc.GetItemCount(ddLibs.zad_InventoryDevice)
+    Int foundDevices = 0
+    Int outputArrayIndex = 0
+    Int index = npc.GetNumItems() - 1 ; start at end to increase chance of early abort
+    While (foundDevices < inventoryDeviceCount && index >= 0 && outputArrayIndex < outputArray.Length)
+        Armor maybeInventoryDevice = npc.GetNthForm(index) as Armor
+        If (maybeInventoryDevice != None)
+            Armor renderedDevice = DDNF_NpcTracker.GetRenderedDevice(maybeInventoryDevice, false)
+            If (renderedDevice != None && npc.GetItemCount(renderedDevice) > 0 && (optionalKeywordForRenderedDevice == None || renderedDevice.HasKeyword(optionalKeywordForRenderedDevice)))
+                foundDevices += 1
+                If (outputArrayIndex == 0 || outputArray.RFind(maybeInventoryDevice, outputArrayIndex - 1) < 0) ; filter out duplicates
+                    outputArray[outputArrayIndex] = maybeInventoryDevice
+                    outputArrayIndex += 1
                 EndIf
-                index += 1
-            EndWhile
-            index = 0
-            If (equippedCount > 0)
-                If (npcTracker.EnablePapyrusLogging)
-                    Debug.Trace("[DDNF] Quick-Equipped " + equippedCount + " devices on " + GetFormIdAsString(npc) + " " + npc.GetDisplayName() + ".")
-                EndIf
-                _renderedDevicesFlags = -1
-                _fixupHighPriority = true ; high priority to make the effects start asap
-                _ignoreNotEquippedInNextFixup = 0
-                RegisterForFixup() ; will re-enable events using GotoState("AliasOccupiedWaitingForFixup")
             EndIf
         EndIf
-        While (index < tempRefs.Length)
-            tempRefs[index].Delete()
-            index += 1
-        EndWhile
-    EndIf
-    Return equippedCount
+        index -= 1
+    EndWhile
+    Return outputArrayIndex
 EndFunction
