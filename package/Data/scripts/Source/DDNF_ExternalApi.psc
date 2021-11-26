@@ -121,9 +121,11 @@ EndFunction
 ; trigger DD events, so you need to know what you are doing. It will not equip a device if the NPC has a
 ; conflicting device equipped.
 ; Devices needs to contain the inventory devices. If devicesCount is >= 0 then this function will only equip
-; the first devicesCount items of the array. This function returns the count of the added devices.
+; the first devicesCount items of the array. If instantEquipRenderedDevices is true then the function will equip
+; the rendered devices instantly instead of waiting for the next fixup, this looks better but places more load on the
+; game engine. This function returns the count of the added devices.
 ;
-Int Function QuickEquipDevices(Int trackingId, Armor[] devices, Int devicesCount = -1)
+Int Function QuickEquipDevices(Int trackingId, Armor[] devices, Int devicesCount = -1, Bool instantEquipRenderedDevices = false)
     Int count = devicesCount
     If (count < 0 || count > devices.Length)
         count = devices.Length
@@ -131,7 +133,7 @@ Int Function QuickEquipDevices(Int trackingId, Armor[] devices, Int devicesCount
     If (trackingId >= 0 && count > 0)
         Alias[] aliases = ((Self as Quest) as DDNF_NpcTracker).GetAliases()
         If (trackingId < aliases.Length)
-            Return (aliases[trackingId] as DDNF_NpcTracker_NPC).QuickEquipDevices(devices, count)
+            Return (aliases[trackingId] as DDNF_NpcTracker_NPC).QuickEquipDevices(devices, count, instantEquipRenderedDevices)
         EndIf
     EndIf
     Return 0
@@ -144,9 +146,11 @@ EndFunction
 ; trigger DD events, so you need to know what you are doing. It will not equip a device if the NPC has a
 ; conflicting device equipped.
 ; Devices needs to contain the inventory devices. If devicesCount is >= 0 then this function will only equip
-; the first devicesCount items of the array. This function returns the count of the added devices.
+; the first devicesCount items of the array.  If instantEquipRenderedDevices is true then the function will equip
+; the rendered devices instantly instead of waiting for the next fixup, this looks better but places more load on the
+; game engine.This function returns the count of the added devices.
 ;
-Int Function QuickEquipDevicesOnAnyNpc(Actor npc, Armor[] devices, Int devicesCount = -1)
+Int Function QuickEquipDevicesOnAnyNpc(Actor npc, Armor[] devices, Int devicesCount = -1, Bool instantEquipRenderedDevices = false)
     Int count = devicesCount
     If (count < 0 || count > devices.Length)
         count = devices.Length
@@ -160,7 +164,7 @@ Int Function QuickEquipDevicesOnAnyNpc(Actor npc, Armor[] devices, Int devicesCo
         Return 0 ; not able to track npc
     EndIf
     DDNF_NpcTracker_NPC npcTracker = tracker.GetAliases()[trackingId] as DDNF_NpcTracker_NPC
-    Return npcTracker.QuickEquipDevices(devices, count)
+    Return npcTracker.QuickEquipDevices(devices, count, instantEquipRenderedDevices)
 EndFunction
 
 

@@ -17,10 +17,12 @@ Package Property BoundCombatNPCSandbox Auto
 Package Property BoundNPCSandbox Auto
 Weapon Property DummyWeapon Auto
 zadLibs Property DDLibs Auto
+Message Property ManipulatePanelGagInstead Auto
 
 Bool Property UseBoundCombat Auto
-Bool Property EnablePapyrusLogging Auto Conditional
-Bool Property RestoreOriginalOutfit Auto
+Bool Property EnablePapyrusLogging = False Auto Conditional
+Bool Property RestoreOriginalOutfit = False Auto
+Bool Property AllowManipulationOfDevices = True Auto
 
 Float Property MaxFixupsPerThreeSeconds = 3.0 Auto
 
@@ -248,6 +250,47 @@ Function HandleDeviceEquipped(Actor akActor, Armor inventoryDevice, Bool checkFo
             EndIf
         EndIf
     EndIf
+EndFunction
+
+
+Function HandleDeviceSelectedInContainerMenu(Actor npc, Armor inventoryDevice, Armor renderedDevice)
+    If (!AllowManipulationOfDevices || inventoryDevice.HasKeyword(ddLibs.zad_QuestItem) || inventoryDevice.HasKeyword(ddLibs.zad_BlockGeneric))
+        Return ; do not manipulate quest devices
+    EndIf
+    If (renderedDevice.HasKeyword(ddLibs.zad_DeviousGagPanel))
+        ; allow player to remove/insert panel gag plug
+        Int selection = ManipulatePanelGagInstead.Show()
+        If (selection > 0 && EnsureDeviceStillEquippedAfterPlayerSelection(npc, inventoryDevice, renderedDevice))
+            If (selection == 1) ; remove
+                If (npc.GetItemCount(ddLibs.zad_gagPanelPlug) == 0)
+                    npc.AddItem(ddLibs.zad_gagPanelPlug, 1)
+                EndIf
+                npc.SetFactionRank(ddLibs.zadGagPanelFaction, 0)
+            Else ; insert
+                npc.RemoveItem(ddLibs.zad_gagPanelPlug, 1)
+                npc.SetFactionRank(ddLibs.zadGagPanelFaction, 1)
+            EndIf
+        EndIf
+    EndIf
+EndFunction
+
+
+Bool Function EnsureDeviceStillEquippedAfterPlayerSelection(Actor npc, Armor inventoryDevice, Armor renderedDevice)
+    If (npc.GetItemCount(renderedDevice) > 0)
+        Return true
+    EndIf
+    If (Player.GetItemCount(inventoryDevice) > 0)
+        Int index = Add(npc)
+        If (index >= 0)
+            Armor[] devices = new Armor[1]
+            devices[0] = inventoryDevice
+            If ((GetAliases()[index] as DDNF_NpcTracker_NPC).QuickEquipDevices(devices, 1, true) == 1)
+                Player.RemoveItem(inventoryDevice, aiCount=1, abSilent=true)
+                Return true
+            EndIf
+        EndIf
+    EndIf
+    Return false
 EndFunction
 
 

@@ -106,3 +106,7 @@ Version 0.4
 - Add more information to MCM: Show tracking id and equipped devices of NPC under crosshair
 - Add DDNF_ExternalApi to support other mods getting or equipping devices
 - Some more internal changes
+
+Version 0.5 beta 1
+- Prevent NPCs with equipped devices from becoming bard audience
+- Allow the player to manipulate NPC's panel gags by removing/inserting plug

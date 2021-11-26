@@ -1095,7 +1095,7 @@ Int Function TryGetEquippedDevices(Armor[] outputArray)
     Return index
 EndFunction
 
-Int Function QuickEquipDevices(Armor[] devices, Int count)
+Int Function QuickEquipDevices(Armor[] devices, Int count, Bool equipRenderedDevices)
     DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
     ObjectReference[] tempRefs
     If (count > 1)
@@ -1114,7 +1114,7 @@ Int Function QuickEquipDevices(Armor[] devices, Int count)
         tempRefs = SpawnerTask.Run(handle)
     ElseIf (count == 1 && devices[0] != None)
        tempRefs = new ObjectReference[1]
-       tempRefs[1] = npcTracker.Player.PlaceAtMe(devices[0], abInitiallyDisabled = true)
+       tempRefs[0] = npcTracker.Player.PlaceAtMe(devices[0], abInitiallyDisabled = true)
     EndIf
     Int equippedCount = 0
     If (tempRefs.Length > 0)
@@ -1143,6 +1143,9 @@ Int Function QuickEquipDevices(Armor[] devices, Int count)
                         EndIf
                         npc.AddItem(inventoryDevice.deviceRendered, 1, true)
                         npc.AddItem(inventoryDevice.deviceInventory, 1, true)
+                        if (equipRenderedDevices)
+                            npc.EquipItem(inventoryDevice.deviceRendered, abPreventRemoval=true, abSilent=true)
+                        EndIf
                         equippedCount += 1
                     EndIf
                 EndIf
@@ -1150,6 +1153,9 @@ Int Function QuickEquipDevices(Armor[] devices, Int count)
             EndWhile
             index = 0
             If (equippedCount > 0)
+                If (npcTracker.EnablePapyrusLogging)
+                    Debug.Trace("[DDNF] Quick-Equipped " + equippedCount + " devices on " + GetFormIdAsString(npc) + " " + npc.GetDisplayName() + ".")
+                EndIf
                 _renderedDevicesFlags = -1
                 _fixupHighPriority = true ; high priority to make the effects start asap
                 _ignoreNotEquippedInNextFixup = 0

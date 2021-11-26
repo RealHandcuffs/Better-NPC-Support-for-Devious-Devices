@@ -5,7 +5,7 @@ Scriptname DDNF_MainQuest_Player extends ReferenceAlias
 
 Formlist Property EmptyFormlist Auto
 
-String Property Version = "0.4" AutoReadOnly
+String Property Version = "0.5 beta 1" AutoReadOnly
 String _lastVersion
 
 
@@ -87,6 +87,37 @@ Event OnMenuClose(String menuName)
 EndEvent
 
 
+Event OnItemAdded(Form akBaseItem, Int aiItemCount, ObjectReference akItemReference, ObjectReference akSourceContainer)
+    If (!UI.IsMenuOpen("ContainerMenu")) ; not expected, fallback in case something went wrong
+        RemoveAllInventoryEventFilters()
+        AddInventoryEventFilter(EmptyFormlist)
+        Return
+    EndIf
+    Actor akActor = akSourceContainer as Actor
+    Armor maybeInventoryDevice = akBaseItem as Armor
+    Armor renderedDevice = StorageUtil.GetFormValue(maybeInventoryDevice, "ddnf_r", None) as Armor
+    DDNF_NPCTracker npcTracker = (GetOwningQuest() as DDNF_MainQuest).NpcTracker
+    If (akActor != None && maybeInventoryDevice != None && (renderedDevice != None || maybeInventoryDevice.HasKeyword(npcTracker.DDLibs.zad_InventoryDevice)) && !akActor.IsDead())
+        If (renderedDevice == None)
+            renderedDevice = npcTracker.DDLibs.GetRenderedDevice(maybeInventoryDevice)
+            If (renderedDevice != None)
+                If (npcTracker.EnablePapyrusLogging)
+                    String inventoryFormId = DDNF_NpcTracker_NPC.GetFormIdAsString(maybeInventoryDevice)
+                    String renderedFormId = DDNF_NpcTracker_NPC.GetFormIdAsString(renderedDevice)
+                    Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + inventoryFormId + ", ddnf_r, " + renderedFormId + ")")
+                    Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + renderedFormId + ", ddnf_i, " + inventoryFormId + ")")
+                EndIf
+                StorageUtil.SetFormValue(maybeInventoryDevice, "ddnf_r", renderedDevice)
+                StorageUtil.SetFormValue(renderedDevice, "ddnf_i", maybeInventoryDevice)
+            EndIf
+        EndIf
+        If (renderedDevice != None && npcTracker.IsRunning())
+            npcTracker.HandleDeviceSelectedInContainerMenu(akActor, maybeInventoryDevice, renderedDevice)
+        EndIf
+    EndIf
+EndEvent
+
+
 Event OnItemRemoved(Form akBaseItem, int aiItemCount, ObjectReference akItemReference, ObjectReference akDestContainer)
     If (!UI.IsMenuOpen("ContainerMenu")) ; not expected, fallback in case something went wrong
         RemoveAllInventoryEventFilters()
@@ -95,9 +126,23 @@ Event OnItemRemoved(Form akBaseItem, int aiItemCount, ObjectReference akItemRefe
     EndIf
     Actor akActor = akDestContainer as Actor
     Armor maybeInventoryDevice = akBaseItem as Armor
+    Armor renderedDevice = StorageUtil.GetFormValue(maybeInventoryDevice, "ddnf_r", None) as Armor
     DDNF_NPCTracker npcTracker = (GetOwningQuest() as DDNF_MainQuest).NpcTracker
-    If (akActor != None && maybeInventoryDevice != None && maybeInventoryDevice.HasKeyword(npcTracker.DDLibs.zad_InventoryDevice) && !akActor.IsDead())
+    If (akActor != None && maybeInventoryDevice != None && (renderedDevice != None || maybeInventoryDevice.HasKeyword(npcTracker.DDLibs.zad_InventoryDevice)) && !akActor.IsDead())
         ; player trying to equip device on NPC, wait until container menu is closed
+        If (renderedDevice == None)
+            renderedDevice = npcTracker.DDLibs.GetRenderedDevice(maybeInventoryDevice)
+            If (renderedDevice != None)
+                If (npcTracker.EnablePapyrusLogging)
+                    String inventoryFormId = DDNF_NpcTracker_NPC.GetFormIdAsString(maybeInventoryDevice)
+                    String renderedFormId = DDNF_NpcTracker_NPC.GetFormIdAsString(renderedDevice)
+                    Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + inventoryFormId + ", ddnf_r, " + renderedFormId + ")")
+                    Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + renderedFormId + ", ddnf_i, " + inventoryFormId + ")")
+                EndIf
+                StorageUtil.SetFormValue(maybeInventoryDevice, "ddnf_r", renderedDevice)
+                StorageUtil.SetFormValue(renderedDevice, "ddnf_i", maybeInventoryDevice)
+            EndIf
+        EndIf
         Int waitCount = 0
         While (UI.IsMenuOpen("ContainerMenu") && waitCount < 20)
             Utility.Wait(0.017)

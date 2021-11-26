@@ -9,6 +9,7 @@ Int Property OptionNpcProcessingEnabled Auto
 Int Property OptionScannerFrequency Auto
 Int Property OptionMaxFixupsPerThreeSeconds Auto
 Int Property OptionRestoreOriginalOutfit Auto
+Int Property OptionAllowManipulationOfDevices Auto
 
 Int Property OptionClearCachedDataOnMenuClose Auto
 
@@ -35,6 +36,7 @@ Event OnPageReset(string page)
     OptionScannerFrequency = AddSliderOption("Scan for NPCs every", MainQuest.SecondsBetweenScans, a_formatString = "{0} seconds", a_flags = flags)
     OptionMaxFixupsPerThreeSeconds = AddSliderOption("NPCs to process/3 seconds", MainQuest.NpcTracker.MaxFixupsPerThreeSeconds, a_flags = flags)
     OptionRestoreOriginalOutfit = AddToggleOption("Restore original outfits", MainQuest.NpcTracker.RestoreOriginalOutfit, a_flags = flags)
+    OptionAllowManipulationOfDevices = AddToggleOption("Allow manipulation of devices", MainQuest.NpcTracker.AllowManipulationOfDevices, a_flags = flags)
 
     AddHeaderOption("Maintenance")
     OptionClearCachedDataOnMenuClose = AddToggleOption("Clear cached data on menu close", false, a_flags = flags)
@@ -84,6 +86,7 @@ Event OnOptionDefault(Int option)
             SetOptionFlags(OptionScannerFrequency, OPTION_FLAG_NONE, true)
             SetOptionFlags(OptionMaxFixupsPerThreeSeconds, OPTION_FLAG_NONE, false)
             SetOptionFlags(OptionRestoreOriginalOutfit, OPTION_FLAG_NONE, false)
+            SetOptionFlags(OptionAllowManipulationOfDevices, OPTION_FLAG_NONE, false)
             If (MainQuest.NpcTracker.EnablePapyrusLogging)
                 Debug.Trace("[DDNF] MCM: Enabled NPC processing.")
             EndIf
@@ -110,6 +113,12 @@ Event OnOptionDefault(Int option)
             SetToggleOptionValue(OptionRestoreOriginalOutfit, false)
             Debug.Trace("[DDNF] MCM: Disabled restoring original outfits.")
         EndIf
+    Elseif (option == OptionAllowManipulationOfDevices)
+        If (!MainQuest.NpcTracker.AllowManipulationOfDevices)
+            MainQuest.NpcTracker.AllowManipulationOfDevices = true
+            SetToggleOptionValue(OptionAllowManipulationOfDevices, true)
+            Debug.Trace("[DDNF] MCM: Enabled manipulation of devices.")
+        EndIf
     ElseIf (option == OptionEnablePapyrusLogging)
         If (MainQuest.NpcTracker.EnablePapyrusLogging)
             MainQuest.NpcTracker.EnablePapyrusLogging = false
@@ -135,6 +144,7 @@ Event OnOptionSelect(Int option)
         SetOptionFlags(OptionScannerFrequency, flags, true)
         SetOptionFlags(OptionMaxFixupsPerThreeSeconds, flags, false)
         SetOptionFlags(OptionRestoreOriginalOutfit, flags, false)
+        SetOptionFlags(OptionAllowManipulationOfDevices, flags, false)
         If (MainQuest.NpcTracker.EnablePapyrusLogging)
             If (isRunning)
                 Debug.Trace("[DDNF] MCM: Disabled NPC processing.")
@@ -149,6 +159,14 @@ Event OnOptionSelect(Int option)
             Debug.Trace("[DDNF] MCM: Enabled restoring original outfits.")
         Else
             Debug.Trace("[DDNF] MCM: Disabled restoring original outfits.")
+        EndIf
+    ElseIf (option == OptionAllowManipulationOfDevices)
+        MainQuest.NpcTracker.AllowManipulationOfDevices = !MainQuest.NpcTracker.AllowManipulationOfDevices
+        SetToggleOptionValue(OptionAllowManipulationOfDevices, MainQuest.NpcTracker.AllowManipulationOfDevices)
+        If (MainQuest.NpcTracker.AllowManipulationOfDevices)
+            Debug.Trace("[DDNF] MCM: Enabled manipulation of devices.")
+        Else
+            Debug.Trace("[DDNF] MCM: Disabled manipulation of devices.")
         EndIf
     ElseIf (option == OptionEnablePapyrusLogging)
         MainQuest.NpcTracker.EnablePapyrusLogging = !MainQuest.NpcTracker.EnablePapyrusLogging
