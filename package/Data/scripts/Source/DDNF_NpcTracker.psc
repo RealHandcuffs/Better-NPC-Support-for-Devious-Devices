@@ -29,6 +29,7 @@ Float Property MaxFixupsPerThreeSeconds = 3.0 Auto
 Alias[] _cachedAliases ; performance optimization
 Form[] _cachedNpcs ; performance optimization
 Int _attemptedFixupsInPeriod
+Armor[] _dcurSpecialHandlingDevices
 
 
 Alias[] Function GetAliases()
@@ -75,6 +76,11 @@ Function HandleGameLoaded(Bool upgrade)
         ClearStorageUtilData()
     EndIf
     RefreshWeaponDisplayArmors()
+    If (Game.GetFormFromFile(0x024495, "Deviously Cursed Loot.esp") == None) ; dcur_mainlib
+        _dcurSpecialHandlingDevices = new Armor[1]
+    Else
+        _dcurSpecialHandlingDevices = DDNF_DcurShim.GetSpecialHandlingDevices()
+    EndIf
     ; notify all alias scripts
     Int index = 0
     Alias[] aliases = GetAliases()
@@ -256,6 +262,14 @@ EndFunction
 Function HandleDeviceSelectedInContainerMenu(Actor npc, Armor inventoryDevice, Armor renderedDevice)
     If (!AllowManipulationOfDevices || inventoryDevice.HasKeyword(ddLibs.zad_QuestItem) || inventoryDevice.HasKeyword(ddLibs.zad_BlockGeneric))
         Return ; do not manipulate quest devices
+    EndIf
+    If (_dcurSpecialHandlingDevices[0] != None)
+        Int dcurDeviceIndex = _dcurSpecialHandlingDevices.Find(inventoryDevice)
+        If (dcurDeviceIndex >= 0)
+            ; handle device using the cursed loot shim
+            DDNF_DcurShim.HandleDeviceSelectedInContainerMenu(Self, npc, inventoryDevice, renderedDevice, _dcurSpecialHandlingDevices, dcurDeviceIndex)
+            Return
+        EndIf
     EndIf
     If (renderedDevice.HasKeyword(ddLibs.zad_DeviousGagPanel))
         ; allow player to remove/insert panel gag plug
