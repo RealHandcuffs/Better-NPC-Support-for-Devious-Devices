@@ -115,3 +115,4 @@ Version 0.5 beta 1
 
 Version 0.5 beta 2
 - Recognize devious plugs, too (they were ignored up to now)
+- Some refactoring and additions to ExternalApi.psc
