@@ -121,8 +121,8 @@ EndFunction
 ;
 ; Get the rendered device for the given inventory device.
 ;
-Armor Function GetRenderedDevice(Armor inventoryDevice) Global
-    Return DDNF_NpcTracker.GetRenderedDevice(inventoryDevice, false)
+Armor Function GetRenderedDevice(Armor device) Global
+    Return DDNF_NpcTracker.GetRenderedDevice(device, false)
 EndFunction
 
 
@@ -187,11 +187,15 @@ EndFunction
 ; WARNING: This function has to do a complex analysis of all equipped devices and is therefore slow.
 ;
 Armor Function ChooseDeviceForUnequip(Int trackingId, Bool unequipSelf)
+    ChooseDeviceForUnequipWithIgnoredDevices(trackingId, unequipSelf, new Armor[1], 0)
+EndFunction
+
+Armor Function ChooseDeviceForUnequipWithIgnoredDevices(Int trackingId, Bool unequipSelf, Armor[] devicesToIgnore, Int devicesToIgnoreCount)
     If (trackingId >= 0)
         Alias[] aliases = ((Self as Quest) as DDNF_NpcTracker).GetAliases()
         If (trackingId < aliases.Length)
             DDNF_NpcTracker_NPC npcTracker = aliases[trackingId] as DDNF_NpcTracker_NPC
-            Return npcTracker.ChooseDeviceForUnequip(unequipSelf)
+            Return npcTracker.ChooseDeviceForUnequip(unequipSelf, devicesToIgnore, devicesToIgnoreCount)
         EndIf
     EndIf
     Return None
@@ -206,6 +210,10 @@ EndFunction
 ; WARNING: This function has to do a complex analysis of all equipped devices and is therefore slow.
 ;
 Armor Function ChooseDeviceForUnequipOnAnyNpc(Actor npc, Bool unequipSelf)
+    ChooseDeviceForUnequipOnAnyNpcWithIgnoredDevices(npc, unequipSelf, new Armor[1], 0)
+EndFunction
+
+Armor Function ChooseDeviceForUnequipOnAnyNpcWithIgnoredDevices(Actor npc, Bool unequipSelf, Armor[] devicesToIgnore, Int devicesToIgnoreCount)
     If (npc == None)
         Return None ; nothing to do
     EndIf
@@ -215,5 +223,14 @@ Armor Function ChooseDeviceForUnequipOnAnyNpc(Actor npc, Bool unequipSelf)
         Return None ; not able to track npc
     EndIf
     DDNF_NpcTracker_NPC npcTracker = tracker.GetAliases()[trackingId] as DDNF_NpcTracker_NPC
-    Return npcTracker.ChooseDeviceForUnequip(unequipSelf)
+    Return npcTracker.ChooseDeviceForUnequip(unequipSelf, devicesToIgnore, devicesToIgnoreCount)
+EndFunction
+
+
+;
+; Let a NPC try to escape a device.
+; This can take up to 30 seconds because of struggle animations.
+;
+Bool Function TryToEscapeDevice(Actor npc, Armor device) Global
+    Return DDNF_NpcTracker_NPC.TryToEscapeDevice(npc, device)
 EndFunction

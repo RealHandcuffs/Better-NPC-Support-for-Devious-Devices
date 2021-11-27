@@ -417,11 +417,11 @@ Event OnUpdate()
         ActorBase npcBase = npc.GetActorBase()
         Outfit originalOutfit = StorageUtil.GetFormValue(npcBase, "zad_OriginalOutfit") as Outfit
         If (originalOutfit != None)
+            StorageUtil.UnSetFormValue(npcBase, "zad_OriginalOutfit")
             If (enablePapyrusLogging)
                 Debug.Trace("[DDNF] Restoring original outfit of " + formIdAndName + " and rescheduling fixup.")
             EndIf
             npc.SetOutfit(originalOutfit, false)
-            StorageUtil.UnSetFormValue(npcBase, "zad_OriginalOutfit")
             _fixupLock = false
             RegisterForFixup()
             Return
@@ -1037,7 +1037,7 @@ Int Function QuickEquipDevices(Armor[] devices, Int count, Bool equipRenderedDev
 EndFunction
 
 
-Armor Function ChooseDeviceForUnequip(Bool unequipSelf)
+Armor Function ChooseDeviceForUnequip(Bool unequipSelf, Armor[] devicesToIgnore, Int devicesToIgnoreCount)
     Actor npc = GetReference() as Actor
     If (npc == None)
         Return None
@@ -1051,21 +1051,24 @@ Armor Function ChooseDeviceForUnequip(Bool unequipSelf)
     Armor[] renderedDevices = new Armor[32]
     Int index = 0
     While (index < deviceCount)
-        renderedDevices[index] = DDNF_NpcTracker.GetRenderedDevice(inventoryDevices[index], false)
+        Armor inventoryDevice = inventoryDevices[index]
+        If (devicesToIgnoreCount == 0 || devicesToIgnore.RFind(inventoryDevice, devicesToIgnoreCount + 1) < 0)
+            renderedDevices[index] = DDNF_NpcTracker.GetRenderedDevice(inventoryDevice, false)
+        EndIf
         index += 1
     EndWhile
     Bool[] unequipPossible = new Bool[32]
-    CheckIfUnequipPossible(npc, renderedDevices, unequipPossible, deviceCount, npcTracker.DDLibs, unequipSelf)
+    CheckIfUnequipPossible(npc, inventoryDevices, renderedDevices, unequipPossible, deviceCount, npcTracker.DDLibs, unequipSelf)
     Armor[] selectionArray = new Armor[128]
     Int selectionArrayIndex = 0
     index = 0
     While (index < deviceCount && selectionArrayIndex < selectionArray.Length)
         If (unequipPossible[index])
-            Armor renderedDevice = renderedDevices[index]
+            Armor inventoryDevice = inventoryDevices[index]
             Int priority = GetPriorityForUnequip(npcTracker.DDLibs, renderedDevices[index])
             Int priorityIndex = 0
             While (priorityIndex < priority && selectionArrayIndex < selectionArray.Length)
-                selectionArray[selectionArrayIndex] = renderedDevice
+                selectionArray[selectionArrayIndex] = inventoryDevice
                 selectionArrayIndex += 1
                 priorityIndex += 1
             EndWhile
@@ -1073,13 +1076,20 @@ Armor Function ChooseDeviceForUnequip(Bool unequipSelf)
         index += 1
     EndWhile
     If (selectionArrayIndex == 0)
+        If (npcTracker.enablePapyrusLogging)
+            Debug.Trace("[DDNF] No device found for unequipping (unequipSelf=" + unequipSelf + ") on " + GetFormIdAsString(npc) + " " + npc.GetDisplayName() + ".")
+        EndIf
         Return None
     EndIf    
-    Return selectionArray[Utility.RandomInt(0, selectionArrayIndex - 1)]
+    Armor deviceToUnequip = selectionArray[Utility.RandomInt(0, selectionArrayIndex - 1)]
+    If (npcTracker.enablePapyrusLogging)
+        Debug.Trace("[DDNF] Found device " + GetFormIdAsString(deviceToUnequip) + " " + deviceToUnequip.GetName() + " for unequipping (unequipSelf=" + unequipSelf + ") on " + GetFormIdAsString(npc) + " " + npc.GetDisplayName() + ".")
+    EndIf
+    Return deviceToUnequip
 EndFunction
 
 
-Function CheckIfUnequipPossible(Actor npc, Armor[] renderedDevices, Bool[] output, Int count, zadLibs ddLibs, Bool unequipSelf) GLobal
+Function CheckIfUnequipPossible(Actor npc, Armor[] inventoryDevices, Armor[] renderedDevices, Bool[] output, Int count, zadLibs ddLibs, Bool unequipSelf) GLobal
     Int[] cachedCounts = new Int[10]
     cachedCounts[0] = -1 ; zad_DeviousHeavyBondage
     cachedCounts[1] = -1 ; zad_DeviousBondageMittens
@@ -1093,14 +1103,14 @@ Function CheckIfUnequipPossible(Actor npc, Armor[] renderedDevices, Bool[] outpu
     cachedCounts[9] = -1 ; zad_BraNoBlockPiercings
     Int index = 0
     While (index < count)
-        output[index] = CheckUnequipPossibleLoopFn(npc, renderedDevices[index], ddLibs, cachedCounts, unequipSelf)
+        output[index] = CheckUnequipPossibleLoopFn(npc, inventoryDevices[index], renderedDevices[index], ddLibs, cachedCounts, unequipSelf)
         index += 1
     EndWhile
 EndFunction
 
 
-Bool Function CheckUnequipPossibleLoopFn(Actor npc, Armor renderedDevice, zadLibs ddLibs, Int[] cachedCounts, Bool unequipSelf) Global
-    If (renderedDevice == None)
+Bool Function CheckUnequipPossibleLoopFn(Actor npc, Armor inventoryDevice, Armor renderedDevice, zadLibs ddLibs, Int[] cachedCounts, Bool unequipSelf) Global
+    If (inventoryDevice == None || renderedDevice == None || inventoryDevice.HasKeyword(ddLibs.zad_BlockGeneric) || inventoryDevice.HasKeyword(ddLibs.zad_QuestItem))
         Return false
     EndIf
     If (unequipSelf)
@@ -1195,6 +1205,96 @@ Int Function GetPriorityForUnequip(zadLibs ddLibs, Armor renderedDevice) Global 
         ; then everything else
         Return 1
     EndIf
+EndFunction
+
+
+Bool Function TryToEscapeDevice(Actor npc, Armor device) Global
+    Armor renderedDevice = DDNF_NpcTracker.GetRenderedDevice(device, false)
+    If (renderedDevice == None || npc.GetItemCount(renderedDevice) == 0)
+        Return false
+    EndIf
+    DDNF_NpcTracker npcTracker = DDNF_NpcTracker.Get()
+    zadLibs ddLibs = npcTracker.DDLibs
+    If (device.HasKeyword(ddLibs.zad_BlockGeneric) || device.HasKeyword(ddLibs.zad_QuestItem))
+        Return false
+    EndIf
+    ObjectReference tempRef = ddLibs.PlayerRef.PlaceAtMe(device, abInitiallyDisabled = true)
+    zadEquipScript equipScript = tempRef as zadEquipScript
+    If (equipScript == None)
+        tempRef.Delete()
+        Return false
+    EndIf
+    Float unlockChance = 0
+    If ((equipScript.deviceKey == None || npc.GetItemCount(equipScript.deviceKey) >= equipScript.NumberOfKeysNeeded) && npc.GetItemCount(ddLibs.zad_DeviousBondageMittens) == 0)
+        unlockChance = Clamp(100 - equipScript.LockAccessDifficulty, 0, 100)
+    EndIf
+    Float struggleChance = Clamp(equipScript.BaseEscapeChance, 0, 100)
+    If (npcTracker.EnablePapyrusLogging)
+        Debug.Trace("[DDNF] " + DDNF_NpcTracker_NPC.GetFormIdAsString(npc) + " " + npc.GetDisplayName() + " trying to escape " + DDNF_NpcTracker_NPC.GetFormIdAsString(device) + " " + device.GetName() + ", unlockChance=" + unlockChance + ", struggleChance=" + struggleChance + ".")
+    EndIf
+    Bool success
+    If (unlockChance >= struggleChance)
+        If (unlockChance == 100)
+            success = true
+        Else
+            success = PlayStruggleAnimation(ddLibs, equipScript, npc) && Utility.RandomFloat(0, 100) < unlockChance
+        EndIf
+    Else
+        success = PlayStruggleAnimation(ddLibs, equipScript, npc) && (struggleChance == 100 || Utility.RandomFloat(0, 100) < struggleChance)
+    EndIf
+    If (success)
+        success = ddLibs.UnlockDevice(npc, equipScript.deviceInventory, equipScript.deviceRendered, equipScript.zad_DeviousDevice, false, true)
+    EndIf
+    If (npcTracker.EnablePapyrusLogging)
+        If (success)
+            Debug.Trace("[DDNF] " + DDNF_NpcTracker_NPC.GetFormIdAsString(npc) + " " + npc.GetDisplayName() + " escaped " + DDNF_NpcTracker_NPC.GetFormIdAsString(device) + " " + device.GetName() + ".")
+        Else
+            Debug.Trace("[DDNF] " + DDNF_NpcTracker_NPC.GetFormIdAsString(npc) + " " + npc.GetDisplayName() + " failed to escape " + DDNF_NpcTracker_NPC.GetFormIdAsString(device) + " " + device.GetName() + ".")
+        EndIf
+    EndIf
+    tempRef.Delete()
+    Return success
+EndFunction 
+
+
+Float Function Clamp(Float value, Float min, Float max) Global
+    If (value < min)
+        Return min
+    ElseIf (value > max)
+        Return max
+    Else
+        Return value
+    EndIf
+EndFunction
+
+
+Bool Function PlayStruggleAnimation(zadLibs ddLibs, zadEquipScript deviceInstance, Actor npc) Global
+    If (ddLibs.IsAnimating(npc))
+        Return false
+    EndIf
+    String[] struggleArray = deviceInstance.SelectStruggleArray(npc)
+    If (struggleArray.Length <= 0)
+        Return true
+    EndIf
+    Bool[] cameraState = ddLibs.StartThirdPersonAnimation(npc, struggleArray[Utility.RandomInt(0, struggleArray.Length - 1)], true)
+    Utility.Wait(10)
+    If (IsParentCellAttached(npc))
+        ddLibs.Pant(npc)
+    EndIf
+    If (deviceInstance.zad_DeviousDevice == ddLibs.zad_DeviousHeavyBondage)
+    Utility.Wait(10)
+        If (IsParentCellAttached(npc))
+            ddLibs.Pant(npc)
+        EndIf
+        If (Utility.RandomInt() < 50)
+            Utility.Wait(10)
+        EndIf
+    EndIf
+    ddLibs.EndThirdPersonAnimation(npc, cameraState, true)
+    If (IsParentCellAttached(npc))
+        ddLibs.SexlabMoan(npc)
+    EndIf
+    Return true
 EndFunction
 
 

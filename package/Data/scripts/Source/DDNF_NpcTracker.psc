@@ -206,10 +206,10 @@ EndFunction
 
 
 Function ClearStorageUtilData()
+    StorageUtil.ClearAllPrefix("ddnf_")
     If (EnablePapyrusLogging)
         Debug.Trace("[DDNF] StorageUtil: ClearAllPrefix(ddnf_)")
     EndIf
-    StorageUtil.ClearAllPrefix("ddnf_")
 EndFunction
 
 
@@ -260,7 +260,7 @@ Function HandleDeviceSelectedInContainerMenu(Actor npc, Armor inventoryDevice, A
     EndIf
     If (renderedDevice.HasKeyword(ddLibs.zad_DeviousGagPanel))
         ; allow player to remove/insert panel gag plug
-        If (CheckIfUnequipPossible(npc, renderedDevice))
+        If (CheckIfUnequipPossible(npc, inventoryDevice, renderedDevice))
             Int selection = ManipulatePanelGagInstead.Show()
             If (selection > 0 && EnsureDeviceStillEquippedAfterPlayerSelection(npc, inventoryDevice, renderedDevice))
                 If (selection == 1) ; remove plug
@@ -278,11 +278,13 @@ Function HandleDeviceSelectedInContainerMenu(Actor npc, Armor inventoryDevice, A
 EndFunction
 
 
-Bool Function CheckIfUnequipPossible(Actor npc, Armor renderedDevice)
-    Armor[] devices = new Armor[1]
-    devices[0] = renderedDevice
+Bool Function CheckIfUnequipPossible(Actor npc, Armor inventoryDevice, Armor renderedDevice)
+    Armor[] inventoryDevices = new Armor[1]
+    inventoryDevices[0] = inventoryDevice
+    Armor[] renderedDevices = new Armor[1]
+    renderedDevices[0] = renderedDevice
     Bool[] unequipPossible = new Bool[1]
-    DDNF_NpcTracker_NPC.CheckIfUnequipPossible(npc, devices, unequipPossible, 1, DDLibs, false)
+    DDNF_NpcTracker_NPC.CheckIfUnequipPossible(npc, inventoryDevices, renderedDevices, unequipPossible, 1, DDLibs, false)
     Return unequipPossible[0]
 EndFunction
 
@@ -341,7 +343,10 @@ EndFunction
 
 
 Armor Function GetRenderedDevice(Armor maybeInventoryDevice, Bool fromCacheOnly) Global
-    Armor renderedDevice = StorageUtil.GetFormValue(renderedDevice, "ddnf_r", None) as Armor
+    If (maybeInventoryDevice == None)
+        Return None
+    EndIf
+    Armor renderedDevice = StorageUtil.GetFormValue(maybeInventoryDevice, "ddnf_r", None) as Armor
     If (renderedDevice == None && !fromCacheOnly)
         DDNF_NpcTracker tracker = Get()
         If (maybeInventoryDevice.HasKeyword(tracker.DDLibs.zad_InventoryDevice))
@@ -356,17 +361,20 @@ EndFunction
 
 
 Armor Function TryGetInventoryDevice(Armor renderedDevice) Global
+    If (renderedDevice == None)
+        Return None
+    EndIf
     Return StorageUtil.GetFormValue(renderedDevice, "ddnf_i", None) as Armor
 EndFunction
 
 
 Function LinkInventoryDeviceAndRenderedDevice(Armor inventoryDevice, Armor renderedDevice, Bool enablePapyrusLogging) Global
+    StorageUtil.SetFormValue(inventoryDevice, "ddnf_r", renderedDevice)
+    StorageUtil.SetFormValue(renderedDevice, "ddnf_i", inventoryDevice)
     If (enablePapyrusLogging)
         String inventoryFormId = DDNF_NpcTracker_NPC.GetFormIdAsString(inventoryDevice)
         String renderedFormId = DDNF_NpcTracker_NPC.GetFormIdAsString(renderedDevice)
         Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + inventoryFormId + ", ddnf_r, " + renderedFormId + ")")
         Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + renderedFormId + ", ddnf_i, " + inventoryFormId + ")")
     EndIf
-    StorageUtil.SetFormValue(inventoryDevice, "ddnf_r", renderedDevice)
-    StorageUtil.SetFormValue(renderedDevice, "ddnf_i", inventoryDevice)
 EndFunction

@@ -97,7 +97,8 @@ Event OnItemAdded(Form akBaseItem, Int aiItemCount, ObjectReference akItemRefere
     Actor akActor = akSourceContainer as Actor
     Armor maybeInventoryDevice = akBaseItem as Armor
     Armor renderedDevice = DDNF_NPCTracker.GetRenderedDevice(maybeInventoryDevice, false)
-    If (renderedDevice != None && npcTracker.IsRunning())
+    If (akActor != None && maybeInventoryDevice != None && renderedDevice != None && npcTracker.IsRunning() && !akActor.IsDead())
+        ; player trying to unequip device from NPC
         npcTracker.HandleDeviceSelectedInContainerMenu(akActor, maybeInventoryDevice, renderedDevice)
     EndIf
 EndEvent
