@@ -5,7 +5,7 @@ Scriptname DDNF_MainQuest_Player extends ReferenceAlias
 
 Formlist Property EmptyFormlist Auto
 
-String Property Version = "0.5 beta 2" AutoReadOnly
+String Property Version = "0.5 beta 3" AutoReadOnly
 String _lastVersion
 
 
@@ -98,8 +98,10 @@ Event OnItemAdded(Form akBaseItem, Int aiItemCount, ObjectReference akItemRefere
     Armor maybeInventoryDevice = akBaseItem as Armor
     Armor renderedDevice = DDNF_NPCTracker.GetRenderedDevice(maybeInventoryDevice, false)
     If (akActor != None && maybeInventoryDevice != None && renderedDevice != None && npcTracker.IsRunning() && !akActor.IsDead())
-        ; player trying to unequip device from NPC
-        npcTracker.HandleDeviceSelectedInContainerMenu(akActor, maybeInventoryDevice, renderedDevice)
+        ; player received a device, check if this is an unequip action or if a device just "bounced" when trying to equip it
+        If (akActor.GetItemCount(renderedDevice) > 0 || akActor.GetItemCount(npcTracker.DDLibs.GetDeviceKeyword(maybeInventoryDevice)) == 0)
+            npcTracker.HandleDeviceSelectedInContainerMenu(akActor, maybeInventoryDevice, renderedDevice)
+        EndIf
     EndIf
 EndEvent
 

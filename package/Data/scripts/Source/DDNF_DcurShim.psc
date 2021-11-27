@@ -69,3 +69,25 @@ Function HandleDeviceSelectedInContainerMenu(DDNF_NpcTracker npcTracker, Actor n
         EndIf
     EndIf
 EndFunction
+
+
+Bool Function UnlockDevice(DDNF_NpcTracker npcTracker, Actor npc, Armor inventoryDevice, Armor renderedDevice, Keyword deviceKeyword, Armor[] dcurSpecialHandlingDevices, Int dcurDeviceIndex) Global
+    If (dcurDeviceIndex == 0)
+        ; Rubber Gloves with D-links, handle generically
+        Return npcTracker.DDLibs.UnlockDevice(npc, inventoryDevice, renderedDevice, deviceKeyword, false, true)
+    ElseIf (dcurDeviceIndex == 1)
+         ; Rubber Gloves (locked), replace with Rubber Gloves with D-links if unequipped
+        Int index = npcTracker.Add(npc)
+        If (index < 0)
+            Return false
+        EndIf
+        npc.RemoveItem(renderedDevice)
+        npc.RemoveItem(inventoryDevice)
+        Armor[] devices = new Armor[1]
+        devices[0] = dcurSpecialHandlingDevices[0]
+        If ((npcTracker.GetAliases()[index] as DDNF_NpcTracker_NPC).QuickEquipDevices(devices, 1, true) == 0) ; e.g. when wearing other gloves
+            npc.AddItem(devices[0], aiCount=1, abSilent=true)
+        EndIf
+        Return true
+    EndIf
+EndFunction

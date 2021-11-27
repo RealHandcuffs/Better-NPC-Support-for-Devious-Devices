@@ -28,15 +28,56 @@ EndFunction
 
 
 ;
+; Check whether a currently tracked NPC is bound.
+;
+Bool Function IsBound(Int trackingId)
+    If (trackingId >= 0)
+        Alias[] aliases = ((Self as Quest) as DDNF_NpcTracker).GetAliases()
+        If (trackingId < aliases.Length)
+            DDNF_NpcTracker_NPC npcTracker = aliases[trackingId] as DDNF_NpcTracker_NPC
+            Return npcTracker.IsBound()
+        EndIf
+    EndIf
+    Return false
+EndFunction
+
+;
+; Check whether a currently tracked NPC is gagged.
+;
+Bool Function IsGagged(Int trackingId)
+    If (trackingId >= 0)
+        Alias[] aliases = ((Self as Quest) as DDNF_NpcTracker).GetAliases()
+        If (trackingId < aliases.Length)
+            DDNF_NpcTracker_NPC npcTracker = aliases[trackingId] as DDNF_NpcTracker_NPC
+            Return npcTracker.IsGagged()
+        EndIf
+    EndIf
+    Return false
+EndFunction
+
+;
+; Check whether a currently tracked NPC is blindfold.
+;
+Bool Function IsBlindfold(Int trackingId)
+    If (trackingId >= 0)
+        Alias[] aliases = ((Self as Quest) as DDNF_NpcTracker).GetAliases()
+        If (trackingId < aliases.Length)
+            DDNF_NpcTracker_NPC npcTracker = aliases[trackingId] as DDNF_NpcTracker_NPC
+            Return npcTracker.IsBlindfold()
+        EndIf
+    EndIf
+    Return false
+EndFunction
+
+;
 ; Check whether a currently tracked NPC is helpless (unable to fight).
-; Condition functions can instead check for membership in the faction DDNF_Helpless (0x??005367).
 ;
 Bool Function IsHelpless(Int trackingId)
     If (trackingId >= 0)
         Alias[] aliases = ((Self as Quest) as DDNF_NpcTracker).GetAliases()
         If (trackingId < aliases.Length)
             DDNF_NpcTracker_NPC npcTracker = aliases[trackingId] as DDNF_NpcTracker_NPC
-            Return npcTracker.NpcIsHelpless
+            Return npcTracker.IsHelpless()
         EndIf
     EndIf
     Return false
@@ -51,7 +92,7 @@ Bool Function HasAnimation(Int trackingId)
         Alias[] aliases = ((Self as Quest) as DDNF_NpcTracker).GetAliases()
         If (trackingId < aliases.Length)
             DDNF_NpcTracker_NPC npcTracker = aliases[trackingId] as DDNF_NpcTracker_NPC
-            Return npcTracker.NpcHasAnimation
+            Return npcTracker.HasAnimation()
         EndIf
     EndIf
     Return false
@@ -61,14 +102,13 @@ EndFunction
 ;
 ; Check whether a currently tracked NPC uses unarmed combat animations (cannot use weapons or spells).
 ; Note that this will be true even if the NPC is helpless and is unable to fight at all.
-; Condition functions can instead check for membership in the faction DDNF_UnarmedCombatants (0x??00489F).
 ;
 Bool Function UseUnarmedCombatAnimations(Int trackingId)
     If (trackingId >= 0)
         Alias[] aliases = ((Self as Quest) as DDNF_NpcTracker).GetAliases()
         If (trackingId < aliases.Length)
             DDNF_NpcTracker_NPC npcTracker = aliases[trackingId] as DDNF_NpcTracker_NPC
-            Return npcTracker.NpcUsesUnarmedCombatAnimations
+            Return npcTracker.UseUnarmedCombatAnimations()
         EndIf
     EndIf
     Return false
@@ -228,9 +268,34 @@ EndFunction
 
 
 ;
-; Let a NPC try to escape a device.
+; Let a currently tracked NPC try to escape a device.
 ; This can take up to 30 seconds because of struggle animations.
 ;
-Bool Function TryToEscapeDevice(Actor npc, Armor device) Global
-    Return DDNF_NpcTracker_NPC.TryToEscapeDevice(npc, device)
+Bool Function TryToEscapeDevice(Int trackingId, Armor device, Bool notifyPlayer)
+    If (trackingId >= 0)
+        Alias[] aliases = ((Self as Quest) as DDNF_NpcTracker).GetAliases()
+        If (trackingId < aliases.Length)
+            DDNF_NpcTracker_NPC npcTracker = aliases[trackingId] as DDNF_NpcTracker_NPC
+            Return npcTracker.TryToEscapeDevice(device, notifyPlayer)
+        EndIf
+    EndIf
+    Return False
+EndFunction
+
+
+;
+; Let any  NPC try to escape a device.
+; This can take up to 30 seconds because of struggle animations.
+;
+Bool Function TryToEscapeDeviceAnyNpc(Actor npc, Armor device, Bool notifyPlayer)
+    If (npc == None)
+        Return False ; nothing to do
+    EndIf
+    DDNF_NpcTracker tracker = (Self as Quest) as DDNF_NpcTracker
+    Int trackingId = tracker.Add(npc)
+    If (trackingId < 0)
+        Return False ; not able to track npc
+    EndIf
+    DDNF_NpcTracker_NPC npcTracker = tracker.GetAliases()[trackingId] as DDNF_NpcTracker_NPC
+    Return npcTracker.TryToEscapeDevice(device, notifyPlayer)
 EndFunction

@@ -30,6 +30,7 @@ Alias[] _cachedAliases ; performance optimization
 Form[] _cachedNpcs ; performance optimization
 Int _attemptedFixupsInPeriod
 Armor[] _dcurSpecialHandlingDevices
+Quest _zadcQuest
 
 
 Alias[] Function GetAliases()
@@ -81,6 +82,7 @@ Function HandleGameLoaded(Bool upgrade)
     Else
         _dcurSpecialHandlingDevices = DDNF_DcurShim.GetSpecialHandlingDevices()
     EndIf
+    _zadcQuest = Game.GetFormFromFile(0x0022FD, "Devious Devices - Contraptions.esm") as Quest
     ; notify all alias scripts
     Int index = 0
     Alias[] aliases = GetAliases()
@@ -260,7 +262,7 @@ Function HandleDeviceSelectedInContainerMenu(Actor npc, Armor inventoryDevice, A
     EndIf
     If (renderedDevice.HasKeyword(ddLibs.zad_DeviousGagPanel))
         ; allow player to remove/insert panel gag plug
-        If (CheckIfUnequipPossible(npc, inventoryDevice, renderedDevice))
+        If (DDNF_NpcTracker_NPC.CheckIfUnequipPossible(npc, inventoryDevice, renderedDevice, DDLibs, false))
             Int selection = ManipulatePanelGagInstead.Show()
             If (selection > 0 && EnsureDeviceStillEquippedAfterPlayerSelection(npc, inventoryDevice, renderedDevice))
                 If (selection == 1) ; remove plug
@@ -275,17 +277,6 @@ Function HandleDeviceSelectedInContainerMenu(Actor npc, Armor inventoryDevice, A
             EndIf
         EndIf
     EndIf
-EndFunction
-
-
-Bool Function CheckIfUnequipPossible(Actor npc, Armor inventoryDevice, Armor renderedDevice)
-    Armor[] inventoryDevices = new Armor[1]
-    inventoryDevices[0] = inventoryDevice
-    Armor[] renderedDevices = new Armor[1]
-    renderedDevices[0] = renderedDevice
-    Bool[] unequipPossible = new Bool[1]
-    DDNF_NpcTracker_NPC.CheckIfUnequipPossible(npc, inventoryDevices, renderedDevices, unequipPossible, 1, DDLibs, false)
-    Return unequipPossible[0]
 EndFunction
 
 
@@ -305,6 +296,26 @@ Bool Function EnsureDeviceStillEquippedAfterPlayerSelection(Actor npc, Armor inv
         EndIf
     EndIf
     Return false
+EndFunction
+
+
+Bool Function UnlockDevice(Actor npc, Armor inventoryDevice, Armor renderedDevice, Keyword deviceKeyword)
+    If (_dcurSpecialHandlingDevices[0] != None)
+        Int dcurDeviceIndex = _dcurSpecialHandlingDevices.Find(inventoryDevice)
+        If (dcurDeviceIndex >= 0)
+            ; handle device using the cursed loot shim
+            Return DDNF_DcurShim.UnlockDevice(Self, npc, inventoryDevice, renderedDevice, deviceKeyword, _dcurSpecialHandlingDevices, dcurDeviceIndex)
+        EndIf
+    EndIf
+    Return DDLibs.UnlockDevice(npc, inventoryDevice, renderedDevice, deviceKeyword, false, true)
+EndFunction
+
+
+ObjectReference Function TryGetCurrentContraption(Actor npc)
+    If (_zadcQuest == None)
+        Return None
+    EndIf
+    Return DDNF_ZadcShim.TryGetCurrentContraption(_zadcQuest, npc)
 EndFunction
 
 
