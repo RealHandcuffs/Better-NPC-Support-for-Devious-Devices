@@ -268,34 +268,46 @@ EndFunction
 
 
 ;
-; Let a currently tracked NPC try to escape a device.
-; This can take up to 30 seconds because of struggle animations.
+; Let a currently tracked NPC attempt to escape either one or all devices. This function can take a long time,
+; up to several minutes. If a device is passed then the NPC will try to escape that device, otherwise the NPC
+; will try to escape all devices. Set suppressNotifications to disable notifications even if enabled in MCM.
+; Returns -1 if the attempt was blocked (e.g. another escape attempt already ongoing), the number of removed devices otherwise.
 ;
-Bool Function TryToEscapeDevice(Int trackingId, Armor device, Bool notifyPlayer)
+Int Function PerformEscapeAttempt(Int trackingId, Armor device = None, Bool suppressNotifications = false)
     If (trackingId >= 0)
         Alias[] aliases = ((Self as Quest) as DDNF_NpcTracker).GetAliases()
         If (trackingId < aliases.Length)
             DDNF_NpcTracker_NPC npcTracker = aliases[trackingId] as DDNF_NpcTracker_NPC
-            Return npcTracker.TryToEscapeDevice(device, notifyPlayer)
+            Int[] resultCounts = npcTracker.PerformEscapeAttempt(device, suppressNotifications, false)
+            If (resultCounts.Length == 1)
+                Return -1
+            EndIf
+            Return resultCounts[0]
         EndIf
     EndIf
-    Return False
+    Return -1
 EndFunction
 
 
 ;
-; Let any  NPC try to escape a device.
-; This can take up to 30 seconds because of struggle animations.
+; Let any NPC attempt to escape either one or all devices. This function can take a long time, up to several
+; minutes. If a device is passed then the NPC will try to escape that device, otherwise the NPC will try to
+; escape all devices. Set suppressNotifications to disable notifications even if enabled in MCM.
+; Returns -1 if the attempt was aborted (e.g. another escape attempt already ongoing), the number of removed devices otherwise.
 ;
-Bool Function TryToEscapeDeviceAnyNpc(Actor npc, Armor device, Bool notifyPlayer)
+Bool Function PerformEscapeAttemptOnAnyNpc(Actor npc, Armor device = None, Bool suppressNotifications = false)
     If (npc == None)
-        Return False ; nothing to do
+        Return -1 ; nothing to do
     EndIf
     DDNF_NpcTracker tracker = (Self as Quest) as DDNF_NpcTracker
     Int trackingId = tracker.Add(npc)
     If (trackingId < 0)
-        Return False ; not able to track npc
+        Return -1 ; not able to track npc
     EndIf
     DDNF_NpcTracker_NPC npcTracker = tracker.GetAliases()[trackingId] as DDNF_NpcTracker_NPC
-    Return npcTracker.TryToEscapeDevice(device, notifyPlayer)
+    Int[] resultCounts = npcTracker.PerformEscapeAttempt(device, suppressNotifications, false)
+    If (resultCounts.Length == 1)
+        Return -1
+    EndIf
+    Return resultCounts[0]
 EndFunction

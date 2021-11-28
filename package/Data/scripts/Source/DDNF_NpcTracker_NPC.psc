@@ -23,7 +23,11 @@ Bool _isBlindfold
 Bool _fixupHighPriority
 Bool _ignoreNotEquippedInNextFixup
 Bool _fixupLock
+Bool _escapeAttemptLock
 Float _lastFixupRealTime
+Float _lastEscapeAttemptGameTime
+Bool _attemptedEscapeAgainstRenderedDevices
+Bool _powerlessInLastEscapeAttempt
 
 
 Function HandleGameLoaded(Bool upgrade)
@@ -76,6 +80,7 @@ Function ForceRefTo(ObjectReference akNewRef) ; override
         _fixupHighPriority = false
         _ignoreNotEquippedInNextFixup = false
         _fixupLock = false
+        _escapeAttemptLock = false
         _lastFixupRealTime = 0.0
         ; we will receive OnDeath event when NPC dies from now on, but they might already be dead
         If (npc.IsDead())
@@ -93,6 +98,10 @@ Function ForceRefTo(ObjectReference akNewRef) ; override
         Else
             RegisterForFixup()
         EndIf
+        _lastEscapeAttemptGameTime = -99 ; special value
+        _attemptedEscapeAgainstRenderedDevices = false
+        _powerlessInLastEscapeAttempt = false
+        RegisterForSingleUpdateGameTime(Utility.RandomFloat(0.4, 0.6)) ; random jitter
     EndIf
 EndFunction
 
@@ -110,6 +119,7 @@ Function Clear() ; override
         If (GetReference() == npc)
             GotoState("AliasEmpty")
             UnregisterForUpdate() ; may do nothing
+            UnregisterForUpdateGameTime()
             ; revert changes made to the NPC
             ; but do not revert membership in npcTracker.DeviceTargets faction, it is used to find the NPC again
             DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
@@ -433,6 +443,9 @@ Event OnUpdate()
         EndIf
     EndIf
     Float timeSinceLastFixup = Utility.GetCurrentRealTime() - _lastFixupRealTime
+    If (timeSinceLastFixup < 0)
+        timeSinceLastFixup = 99 ; race condition when loading game
+    EndIf
     If (timeSinceLastFixup < 5.0)
         ; do not run fixup on the same NPC more frequently than every 5 seconds real time
         ; this serves as a way to prevent many fixups in case a script is modifying the equipment item by item
@@ -468,16 +481,17 @@ Event OnUpdate()
     Bool scanForDevices = renderedDevicesFlags < 0
     If (scanForDevices)
         ; devices are not known, find and analyze them
-        _renderedDevicesFlags = 0
+        _renderedDevicesFlags = -12345 ; special tag
         If (_renderedDevices.Length != 32) ; number of slots
             _renderedDevices = new Armor[32]
         EndIf
         renderedDevicesFlags = FindAndAnalyzeRenderedDevices(ddLibs, npc, _renderedDevices, enablePapyrusLogging)
+        _attemptedEscapeAgainstRenderedDevices = false
         If (GetState() != "AliasOccupied")
             ; something has triggered a new fixup while we were finding and analysing devices
-            If (_renderedDevicesFlags != 0 || !IsParentCellAttached(npc))
+            If (_renderedDevicesFlags != -12345 || !IsParentCellAttached(npc))
                 ; devices have been added/removed or npc has been unloaded, abort
-                If (_renderedDevicesFlags == 0)
+                If (_renderedDevicesFlags == -12345)
                     _renderedDevicesFlags = renderedDevicesFlags
                 EndIf
                 _lastFixupRealTime = Utility.GetCurrentRealTime()
@@ -492,7 +506,7 @@ Event OnUpdate()
             UnregisterForUpdate()
             GotoState("AliasOccupied")
         EndIf
-        If (_renderedDevicesFlags == 0)
+        If (_renderedDevicesFlags == -12345)
             _renderedDevicesFlags = renderedDevicesFlags
         EndIf
         npc.SetFactionRank(npcTracker.DeviceTargets, 0)
@@ -1049,6 +1063,172 @@ EndFunction
 
 
 ;
+; Escape system is triggered from game time update event.
+;
+Event OnUpdateGameTime()
+    Actor npc = GetReference() as Actor
+    DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
+    If (npc != None)
+        Bool registerForUpdate = true
+        If (npcTracker.EscapeSystemEnabled)
+            Int struggleFrequency
+            If (IsCurrentFollower(npc, npcTracker))
+                struggleFrequency = npcTracker.CurrentFollowerStruggleFrequency
+            Else
+                struggleFrequency = npcTracker.OtherNpcStruggleFrequency
+            EndIf
+            If (_lastEscapeAttemptGameTime == -99)
+                ; initialize last escape attempt to random point within one interval
+                _lastEscapeAttemptGameTime = Utility.GetCurrentGameTime() - Utility.RandomFloat(0, struggleFrequency / 24)
+            EndIf
+            If (struggleFrequency > 0)
+                ; escape system is enabled for this NPC
+                Float hoursSinceLastAttempt = (Utility.GetCurrentGameTime() - _lastEscapeAttemptGameTime) * 24.0
+                Float thresholdForNextAttempt = struggleFrequency - 0.25 ; allow some leeway
+                If (hoursSinceLastAttempt >= thresholdForNextAttempt)
+                    If (npcTracker.EnablePapyrusLogging)
+                        Debug.Trace("[DDNF] Escape system: Triggering attempt for " + GetFormIdAsString(npc) + " " + npc.GetDisplayName() + " (hoursSinceLastAttempt=" + hoursSinceLastAttempt + ", struggleFrequency=" + struggleFrequency + ").")
+                    EndIf
+                    Bool doNotStruggleIfChanceZeroPercent = _attemptedEscapeAgainstRenderedDevices && _powerlessInLastEscapeAttempt
+                    _attemptedEscapeAgainstRenderedDevices = true
+                    Int[] result = PerformEscapeAttempt(None, false, doNotStruggleIfChanceZeroPercent)
+                    If (result.Length > 1 && result[0] == 0 && result[1] > 0 && result[2] == result[1])
+                        _powerlessInLastEscapeAttempt = true
+                    EndIf
+                    registerForUpdate = npc == (GetReference() as Actor) ; check for race condition
+                    If (result.Length > 1 && registerForUpdate)
+                        _lastEscapeAttemptGameTime = Utility.GetCurrentGameTime()
+                    EndIf
+                ElseIf (npcTracker.EnablePapyrusLogging)
+                    Debug.Trace("[DDNF] Escape system: Not triggering attempt for " + GetFormIdAsString(npc) + " " + npc.GetDisplayName() + " (hoursSinceLastAttempt=" + hoursSinceLastAttempt + ", struggleFrequency=" + struggleFrequency + ").")
+                EndIf
+            ElseIf (npcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] Escape system: Escape attempts are disabled for " + GetFormIdAsString(npc) + " " + npc.GetDisplayName() + ".")
+            EndIf
+        EndIf
+        If (registerForUpdate)
+            RegisterForSingleUpdateGameTime(Utility.RandomFloat(0.4, 0.6)) ; random jitter
+        EndIf
+    EndIf
+EndEvent
+
+;
+; Make the NPC attempt to escape either one or all devices. This function can take a long time,
+; up to several minutes. If a device is passed then the NPC will try to escape that device, otherwise
+; the NPC will try to escape all devices.
+; Returns an array with a single element if the attempt was blocked (e.g. another escape attempt already ongoing),
+; an array with the following counts otherwise: The number of removed devices, the number of failed devices,
+; the number of devices that had a chance of 0%, the number of remaining devices.
+;
+Int[] Function PerformEscapeAttempt(Armor device, Bool suppressNotifications, Bool doNotStruggleIfChanceZeroPercent)
+    If (_escapeAttemptLock)
+        Return new Int[1] ; concurrent attempt running
+    EndIf
+    _escapeAttemptLock = true
+    Actor npc = GetReference() as Actor
+    DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
+    If (npc == None) ; check for race condition
+        _escapeAttemptLock = false
+        Return new Int[1]
+    EndIf
+    If (npcTracker.EnablePapyrusLogging)
+        Debug.Trace("[DDNF] Performing escape attempt for " + GetFormIdAsString(npc) + " " + npc.GetDisplayName() + ".")
+    EndIf
+    Bool displayNotifications = !suppressNotifications && npcTracker.NotifyPlayerOfCurrentFollowerStruggle && IsCurrentFollower(npc, npcTracker)
+    Armor[] failedDevices = new Armor[32]
+    Int failedDevicesCount = 0
+    Int noChanceDeviceCount = 0
+    Int succeededDeviceCount = 0
+    Bool abortEscapeAttempt = false
+    Armor lastUnequippedDevice = None
+    While (!abortEscapeAttempt)
+        If (lastUnequippedDevice != None)
+            Utility.Wait(2) ; short break between unequipping
+        EndIf
+        Armor deviceToUnequip
+        If (device == None)
+            deviceToUnequip = ChooseDeviceForUnequip(true, failedDevices, failedDevicesCount)
+            If (deviceToUnequip == None)
+                abortEscapeAttempt = true
+            ElseIf (npcTracker.enablePapyrusLogging)
+                Debug.Trace("[DDNF] Escape attempt (" + GetFormIdAsString(npc) + " " + npc.GetDisplayName() +  "): Found device " + GetFormIdAsString(deviceToUnequip) + " " + deviceToUnequip.GetName() + ".")
+            EndIf
+        Else
+            deviceToUnequip = device
+            abortEscapeAttempt = true
+            If (npcTracker.enablePapyrusLogging)
+                Debug.Trace("[DDNF] Escape attempt (" + GetFormIdAsString(npc) + " " + npc.GetDisplayName() +  "): Only considering " + GetFormIdAsString(device) + " " + device.GetName() + ".")
+            EndIf
+        EndIf
+        If (deviceToUnequip != None)
+            Bool[] escapeResult = TryToEscapeDevice(deviceToUnequip, displayNotifications, doNotStruggleIfChanceZeroPercent)
+            If (escapeResult[0])
+               succeededDeviceCount += 1
+               lastUnequippedDevice = deviceToUnequip
+            Else
+                failedDevices[failedDevicesCount] = deviceToUnequip
+                failedDevicesCount += 1
+                If (escapeResult.Length == 1 || failedDevicesCount == failedDevices.Length)
+                    Debug.Trace("[DDNF] Escape attempt (" + GetFormIdAsString(npc) + " " + npc.GetDisplayName() +  "): Early abort due to unexpected failure.")
+                    abortEscapeAttempt = true
+                Else
+                    If (escapeResult[1])
+                        noChanceDeviceCount += 1
+                    EndIf
+                EndIf
+            EndIf
+        EndIf
+    EndWhile
+    Int remainingDevicesCount = npc.GetItemCount(npcTracker.DDLibs.zad_Lockable) + npc.GetItemCount(npcTracker.DDLibs.zad_DeviousPlug)
+    If (displayNotifications && (succeededDeviceCount > 0 || failedDevicesCount > 0)) ; skip notification if no device was found
+        String possessive
+        If (npc.GetLeveledActorBase().GetSex() == 0)
+            possessive = " his "
+        Else
+            possessive = " her "
+        EndIf
+        If (succeededDeviceCount == 0 && failedDevicesCount > 0)
+            If (noChanceDeviceCount == failedDevicesCount)
+                Utility.Wait(1)
+                Debug.Notification(npc.GetDisplayName() + " is powerless to do anything about" + possessive + "devices")
+            Else
+                Utility.Wait(1)
+                Debug.Notification(npc.GetDisplayName() + " failed to escape" + possessive + "devices")
+            EndIf
+        ElseIf (succeededDeviceCount > 0 && remainingDevicesCount == 0)
+            Utility.Wait(1)
+            Debug.Notification(npc.GetDisplayName() + " escaped all" + possessive + "devices")
+        Else
+            Utility.Wait(1)
+            Debug.Notification(npc.GetDisplayName() + " escaped some of" + possessive + "devices")
+        EndIf
+    EndIf
+    If (npcTracker.EnablePapyrusLogging)
+        Debug.Trace("[DDNF] Finished escape attempt for " + GetFormIdAsString(npc) + " " + npc.GetDisplayName() + ": Succeeded " + succeededDeviceCount + ", failed " + failedDevicesCount + " (impossible " + noChanceDeviceCount + "). " + remainingDevicesCount + " remaining.")
+    EndIf
+    _escapeAttemptLock = false
+    Int[] result = new Int[4]
+    result[0] = succeededDeviceCount
+    result[1] = failedDevicesCount
+    result[2] = noChanceDeviceCount
+    result[3] = remainingDevicesCount
+    Return result
+EndFunction
+
+Bool Function IsCurrentFollower(Actor npc, DDNF_NpcTracker npcTracker) Global
+    Bool result = npc.GetFactionRank(npcTracker.CurrentFollowerFaction) >= 0
+    If (!result)
+        ActorBase npcBase = npc.GetActorBase()
+        If (npcBase == Game.GetFormFromFile(0x002B6C, "Dawnguard.esm")) ; DLC1Serana
+            ; Serana's AI is different than that of any other follower, so CurrentFollowerFaction is not working
+            result = DDNF_DLC1Shim.IsSeranaCurrentlyFollowing(npc)
+        EndIf
+    EndIf
+    Return result
+EndFunction
+
+
+;
 ; Choose a device to be unequipped from the NPC, either when the NPC tries to free themselves,
 ; or when somebody else wants to free the NPC. This will respect limitations, e.g. plugs can
 ; only be unequipped after (most) belts, or NPCs need to get rid of heavy bondage first when
@@ -1097,15 +1277,9 @@ Armor Function ChooseDeviceForUnequip(Bool unequipSelf, Armor[] devicesToIgnore,
         index += 1
     EndWhile
     If (selectionArrayIndex == 0)
-        If (npcTracker.enablePapyrusLogging)
-            Debug.Trace("[DDNF] No device found for unequipping (unequipSelf=" + unequipSelf + ") on " + GetFormIdAsString(npc) + " " + npc.GetDisplayName() + ".")
-        EndIf
         Return None
     EndIf    
     Armor deviceToUnequip = selectionArray[Utility.RandomInt(0, selectionArrayIndex - 1)]
-    If (npcTracker.enablePapyrusLogging)
-        Debug.Trace("[DDNF] Found device " + GetFormIdAsString(deviceToUnequip) + " " + deviceToUnequip.GetName() + " for unequipping (unequipSelf=" + unequipSelf + ") on " + GetFormIdAsString(npc) + " " + npc.GetDisplayName() + ".")
-    EndIf
     Return deviceToUnequip
 EndFunction
 
@@ -1255,26 +1429,28 @@ EndFunction
 
 ;
 ; Make the NPC try to escape from a device by opening locks or struggling.
+; Return values: Array with single false value on aborted attempt (quest item, blocked by another device, ...),
+; otherwise array with the following values: 0 - success, 1 - chance was 0%
 ;
-Bool Function TryToEscapeDevice(Armor device, Bool notifyPlayer)
+Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool doNotStruggleIfChanceZeroPercent)
     Actor npc = GetReference() as Actor
     Armor renderedDevice = DDNF_NpcTracker.GetRenderedDevice(device, false)
     If (npc == None || renderedDevice == None || npc.GetItemCount(renderedDevice) == 0)
-        Return false
+        Return new Bool[1]
     EndIf
     DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
     If (npcTracker.TryGetCurrentContraption(npc) != None)
-        Return None ; NPC is currently held by devious contraption
+        Return new Bool[1] ; NPC is currently held by devious contraption
     EndIf
     zadLibs ddLibs = npcTracker.DDLibs
     If (!CheckIfUnequipPossible(npc, device, renderedDevice, ddLibs, true)) ; will also check for zad_BlockGeneric/zad_QuestItem
-        Return false
+        Return new Bool[1]
     EndIf
     ObjectReference tempRef = ddLibs.PlayerRef.PlaceAtMe(device, abInitiallyDisabled = true)
     zadEquipScript equipScript = tempRef as zadEquipScript
     If (equipScript == None) ; not expected but handle it
         tempRef.Delete()
-        Return false
+        Return new Bool[1]
     EndIf
     Int deviceFlags = AnylyzeMaybeDevice(ddLibs, ddLibs.zad_Lockable, true, ddLibs.zad_DeviousPlug, true, renderedDevice, false, npcTracker.enablePapyrusLogging)
     Bool deviceIsHeavyBondage = Math.LogicalAnd(deviceFlags, 4) == 4
@@ -1290,9 +1466,6 @@ Bool Function TryToEscapeDevice(Armor device, Bool notifyPlayer)
         unlockChance = lockAccessChance
     EndIf
     Float struggleChance = Clamp(equipScript.BaseEscapeChance * difficultyModifier, 0, 100)
-    If (npcTracker.EnablePapyrusLogging)
-        Debug.Trace("[DDNF] " + DDNF_NpcTracker_NPC.GetFormIdAsString(npc) + " " + npc.GetDisplayName() + " trying to escape " + DDNF_NpcTracker_NPC.GetFormIdAsString(device) + " " + device.GetName() + ": unlockChance=" + unlockChance + ", struggleChance=" + struggleChance + ".")
-    EndIf
     String possessive = ""
     If (notifyPlayer)
        If (npc.GetLeveledActorBase().GetSex() == 0)
@@ -1302,59 +1475,98 @@ Bool Function TryToEscapeDevice(Armor device, Bool notifyPlayer)
        EndIf
     EndIf
     Bool success
-    If (unlockChance > 0 && unlockChance >= struggleChance)
-        If (unlockChance == 100 && !deviceIsHeavyBondage && !deviceIsBondageMittens)
-            If (notifyPlayer)
-                If (equipScript.deviceKey == None)
-                    Debug.Notification(npc.GetDisplayName() + " removes" + possessive + equipScript.deviceName)
-                Else
-                    Debug.Notification(npc.GetDisplayName() + " unlocks" + possessive + equipScript.deviceName)
+    Bool chanceZeroPercent = unlockChance == 0 && struggleChance == 0
+    If (doNotStruggleIfChanceZeroPercent && chanceZeroPercent)
+        If (npcTracker.EnablePapyrusLogging)
+            Debug.Trace("[DDNF] " + DDNF_NpcTracker_NPC.GetFormIdAsString(npc) + " " + npc.GetDisplayName() + " not struggling to escape " + DDNF_NpcTracker_NPC.GetFormIdAsString(device) + " " + device.GetName() + " because chance is 0%.")
+        EndIf
+    Else
+        If (npcTracker.EnablePapyrusLogging)
+            Debug.Trace("[DDNF] " + DDNF_NpcTracker_NPC.GetFormIdAsString(npc) + " " + npc.GetDisplayName() + " trying to escape " + DDNF_NpcTracker_NPC.GetFormIdAsString(device) + " " + device.GetName() + ": unlockChance=" + unlockChance + ", struggleChance=" + struggleChance + ".")
+        EndIf
+        Bool useUnlockAction = unlockChance > 0 && unlockChance >= struggleChance
+        If (useUnlockAction)
+            If (unlockChance == 100 && !deviceIsHeavyBondage && !deviceIsBondageMittens)
+                If (notifyPlayer)
+                    If (equipScript.deviceKey == None)
+                        Debug.Notification(npc.GetDisplayName() + " is removing" + possessive + equipScript.deviceName)
+                    Else
+                        Debug.Notification(npc.GetDisplayName() + " is unlocking" + possessive + equipScript.deviceName)
+                    EndIf
                 EndIf
+                Utility.Wait(5) ; no animation and only use half the usual time
+                success = true
+            Else
+                If (notifyPlayer)
+                    If (equipScript.deviceKey == None)
+                        Debug.Notification(npc.GetDisplayName() + " is strugging to remove" + possessive + equipScript.deviceName)
+                    Else
+                        Debug.Notification(npc.GetDisplayName() + " is strugging to unlock" + possessive + equipScript.deviceName)
+                    EndIf
+                EndIf
+                PlayStruggleAnimation(ddLibs, equipScript, npc)
+                success = Utility.RandomFloat(0, 99.9) < unlockChance
             EndIf
-            Utility.Wait(5) ; no animation and only use half the usual time
-            success = true
         Else
             If (notifyPlayer)
-                If (equipScript.deviceKey == None)
-                    Debug.Notification(npc.GetDisplayName() + " struggles to remove" + possessive + equipScript.deviceName)
-                Else
-                    Debug.Notification(npc.GetDisplayName() + " struggles to unlock" + possessive + equipScript.deviceName)
-                EndIf
+                Debug.Notification(npc.GetDisplayName() + " is strugging against" + possessive + equipScript.deviceName)
             EndIf
             PlayStruggleAnimation(ddLibs, equipScript, npc)
-            success = Utility.RandomFloat(0, 99.9) < unlockChance
+            success = struggleChance > 0 && Utility.RandomFloat(0, 99.9) < struggleChance
         EndIf
-    Else
-        If (notifyPlayer)
-            If (struggleChance > 0)
-                Debug.Notification(npc.GetDisplayName() + " struggles against" + possessive + equipScript.deviceName)
-            Else
-                Debug.Notification(npc.GetDisplayName() + " struggles feebly against" + possessive + equipScript.deviceName)
+        Bool recheckConditions = CheckIfUnequipPossible(npc, device, renderedDevice, ddLibs, true)
+        If (recheckConditions && useUnlockAction)
+            recheckConditions = equipScript.deviceKey == None || npc.GetItemCount(equipScript.deviceKey) >= equipScript.NumberOfKeysNeeded
+            If (recheckConditions)
+                recheckConditions = npc.GetItemCount(ddLibs.zad_DeviousBondageMittens) == 0 && npc.GetItemCount(ddLibs.zad_DeviousStraitJacket) == 0
             EndIf
         EndIf
-        PlayStruggleAnimation(ddLibs, equipScript, npc)
-        success = struggleChance > 0 && Utility.RandomFloat(0, 99.9) < struggleChance
-    EndIf
-    If (success)
-        success = npcTracker.UnlockDevice(npc, equipScript.deviceInventory, equipScript.deviceRendered, equipScript.zad_DeviousDevice)
-    EndIf
-    If (success)
-        If (notifyPlayer)
-            Debug.Notification(npc.GetDisplayName() + " escaped" + possessive + equipScript.deviceName)
+        If (!recheckConditions)
+            tempRef.Delete()
+            Return new Bool[1] ; abort because of inventory change
         EndIf
-        If (npcTracker.EnablePapyrusLogging)
-            Debug.Trace("[DDNF] " + DDNF_NpcTracker_NPC.GetFormIdAsString(npc) + " " + npc.GetDisplayName() + " escaped " + DDNF_NpcTracker_NPC.GetFormIdAsString(device) + " " + device.GetName() + ".")
+        If (success)
+            success = npcTracker.UnlockDevice(npc, equipScript.deviceInventory, equipScript.deviceRendered, equipScript.zad_DeviousDevice)
         EndIf
-    Else
-        If (notifyPlayer)
-            Debug.Notification(npc.GetDisplayName() + " failed to escape" + possessive + equipScript.deviceName)
-        EndIf
-        If (npcTracker.EnablePapyrusLogging)
-            Debug.Trace("[DDNF] " + DDNF_NpcTracker_NPC.GetFormIdAsString(npc) + " " + npc.GetDisplayName() + " failed to escape " + DDNF_NpcTracker_NPC.GetFormIdAsString(device) + " " + device.GetName() + ".")
+        If (success)
+            If (notifyPlayer)
+                If (useUnlockAction)
+                    If (equipScript.deviceKey == None)
+                        Debug.Notification(npc.GetDisplayName() + " removed" + possessive + equipScript.deviceName)
+                    Else
+                        Debug.Notification(npc.GetDisplayName() + " unlocked" + possessive + equipScript.deviceName)
+                    EndIf
+                Else
+                    Debug.Notification(npc.GetDisplayName() + " escaped " + possessive + equipScript.deviceName)
+                EndIf
+            EndIf
+            If (npcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] " + DDNF_NpcTracker_NPC.GetFormIdAsString(npc) + " " + npc.GetDisplayName() + " escaped " + DDNF_NpcTracker_NPC.GetFormIdAsString(device) + " " + device.GetName() + ".")
+            EndIf
+        Else
+            If (notifyPlayer)
+                If (useUnlockAction)
+                    If (equipScript.deviceKey == None)
+                        Debug.Notification(npc.GetDisplayName() + " failed to remove " + possessive + equipScript.deviceName)
+                    Else
+                        Debug.Notification(npc.GetDisplayName() + " failed to reach the lock of" + possessive + equipScript.deviceName)
+                    EndIf
+                ElseIf (chanceZeroPercent)
+                    Debug.Notification(npc.GetDisplayName() + " realizes that escaping her " + equipScript.deviceName + " is impossible")
+                Else
+                    Debug.Notification(npc.GetDisplayName() + " failed to escape" + possessive + equipScript.deviceName)
+                EndIf
+            EndIf
+            If (npcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] " + DDNF_NpcTracker_NPC.GetFormIdAsString(npc) + " " + npc.GetDisplayName() + " failed to escape " + DDNF_NpcTracker_NPC.GetFormIdAsString(device) + " " + device.GetName() + ".")
+            EndIf
         EndIf
     EndIf
     tempRef.Delete()
-    Return success
+    Bool[] result = new Bool[2]
+    result[0] = success
+    result[1] = chanceZeroPercent
+    Return result
 EndFunction 
 
 Float Function Clamp(Float value, Float min, Float max) Global
@@ -1378,13 +1590,13 @@ Bool Function PlayStruggleAnimation(zadLibs ddLibs, zadEquipScript deviceInstanc
     If (IsParentCellAttached(npc))
         ddLibs.Pant(npc)
     EndIf
-    If (playAnimation)
+    If (playAnimation && ddLibs.IsAnimating(npc))
         If (deviceInstance.zad_DeviousDevice == ddLibs.zad_DeviousHeavyBondage)
             Utility.Wait(10)
             If (IsParentCellAttached(npc))
                 ddLibs.Pant(npc)
             EndIf
-            If (Utility.RandomInt() < 50)
+            If (Utility.RandomInt() < 50 && ddLibs.IsAnimating(npc))
                 Utility.Wait(10)
             EndIf
         EndIf
@@ -1472,7 +1684,7 @@ EndFunction
 ;
 
 Bool Function IsBound()
-    If (_renderedDevicesFlags < 1)
+    If (_renderedDevicesFlags < 0)
         DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
         Actor npc = GetReference() as Actor
         Return npc != None && npc.GetItemCount(npcTracker.DDLibs.zad_DeviousHeavyBondage) > 0
@@ -1481,7 +1693,7 @@ Bool Function IsBound()
 EndFunction
 
 Bool Function IsGagged()
-    If (_renderedDevicesFlags < 1)
+    If (_renderedDevicesFlags < 0)
         DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
         Actor npc = GetReference() as Actor
         Return npc != None && npc.GetItemCount(npcTracker.DDLibs.zad_DeviousGag) > 0
@@ -1490,7 +1702,7 @@ Bool Function IsGagged()
 EndFunction
 
 Bool Function IsBlindfold()
-    If (_renderedDevicesFlags < 1)
+    If (_renderedDevicesFlags < 0)
         DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
         Actor npc = GetReference() as Actor
         Return npc != None && npc.GetItemCount(npcTracker.DDLibs.zad_DeviousBlindfold) > 0
@@ -1499,7 +1711,7 @@ Bool Function IsBlindfold()
 EndFunction
 
 Bool Function IsHelpless()
-    If (_renderedDevicesFlags < 1)
+    If (_renderedDevicesFlags < 0)
         DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
         zadLibs ddLibs = npcTracker.DDLibs
         Actor npc = GetReference() as Actor
@@ -1509,7 +1721,7 @@ Bool Function IsHelpless()
 EndFunction
 
 Bool Function HasAnimation()
-    If (_renderedDevicesFlags < 1)
+    If (_renderedDevicesFlags < 0)
         zadLibs ddLibs = (GetOwningQuest() as DDNF_NpcTracker).DDLibs
         Actor npc = GetReference() as Actor
         Return npc != None && (npc.GetItemCount(ddLibs.zad_DeviousHeavyBondage) > 0 || npc.GetItemCount(ddLibs.zad_DeviousPonyGear) > 0 || npc.GetItemCount(ddLibs.zad_DeviousHobbleSkirt) > 0 || npc.GetItemCount(ddLibs.zad_DeviousHobbleSkirtRelaxed) > 0)
@@ -1518,7 +1730,7 @@ Bool Function HasAnimation()
 EndFunction
 
 Bool Function UseUnarmedCombatAnimations()
-    If (_renderedDevicesFlags < 1)
+    If (_renderedDevicesFlags < 0)
         zadLibs ddLibs = (GetOwningQuest() as DDNF_NpcTracker).DDLibs
         Actor npc = GetReference() as Actor
         Return npc != None && (npc.GetItemCount(ddLibs.zad_DeviousHeavyBondage) > 0 || npc.GetItemCount(ddLibs.zad_DeviousBondageMittens) > 0)

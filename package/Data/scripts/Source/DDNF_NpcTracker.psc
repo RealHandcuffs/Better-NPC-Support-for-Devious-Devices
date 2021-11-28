@@ -7,6 +7,7 @@ Scriptname DDNF_NpcTracker extends Quest
 
 DDNF_MainQuest Property MainQuest Auto
 Actor Property Player Auto
+Faction Property CurrentFollowerFaction Auto
 Faction Property DeviceTargets Auto
 Faction Property Helpless Auto
 Faction Property UnarmedCombatants Auto
@@ -23,6 +24,10 @@ Bool Property UseBoundCombat Auto
 Bool Property EnablePapyrusLogging = False Auto Conditional
 Bool Property RestoreOriginalOutfit = False Auto
 Bool Property AllowManipulationOfDevices = True Auto
+Bool Property EscapeSystemEnabled = False Auto
+Int Property CurrentFollowerStruggleFrequency = 2 Auto ; 0 disables
+Bool Property NotifyPlayerOfCurrentFollowerStruggle = True Auto
+Int Property OtherNpcStruggleFrequency = 0 Auto ; 0 disables
 
 Float Property MaxFixupsPerThreeSeconds = 3.0 Auto
 
