@@ -98,7 +98,7 @@ Event OnItemAdded(Form akBaseItem, Int aiItemCount, ObjectReference akItemRefere
     Armor maybeInventoryDevice = akBaseItem as Armor
     Armor renderedDevice = DDNF_NPCTracker.GetRenderedDevice(maybeInventoryDevice, false)
     If (akActor != None && maybeInventoryDevice != None && renderedDevice != None && npcTracker.IsRunning() && !akActor.IsDead())
-        ; player received a device, check if this is an unequip action or if a device just "bounced" when trying to equip it
+        ; player took a device from NPC, check if this is an unequip action or if a device just "bounced" when trying to put it on the NPC
         If (akActor.GetItemCount(renderedDevice) > 0 || akActor.GetItemCount(npcTracker.DDLibs.GetDeviceKeyword(maybeInventoryDevice)) == 0)
             npcTracker.HandleDeviceSelectedInContainerMenu(akActor, maybeInventoryDevice, renderedDevice)
         EndIf

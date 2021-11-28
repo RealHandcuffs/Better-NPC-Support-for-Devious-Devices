@@ -391,6 +391,9 @@ Function RegisterForFixup(Float delay = 1.0) ; 1.0 is usually a good compromise 
 EndFunction
 
 
+;
+; Fixup is performed from update event.
+;
 Event OnUpdate()
     Actor npc = GetReference() as Actor
     If (npc == None) ; race condition
@@ -785,6 +788,7 @@ Int Function FindAndAnalyzeRenderedDevices(zadLibs ddLibs, Actor npc, Armor[] re
 EndFunction
 
 
+;
 ; Analyze an armor that might be a rendered device.
 ; Returns an int composed of the following flags:
 ;   1 - is rendered device
@@ -941,6 +945,9 @@ Bool Function UnequipWeapons(Actor npc, Weapon ignoreWeapon = None) Global
 EndFunction
 
 
+;
+; Unequip all armors that match the formlist.
+;
 Function UnequipEquippedArmors(Actor npc, FormList maybeEquippedArmors, Bool ignoreShields) Global
     If (!npc.IsEquipped(maybeEquippedArmors))
         Return ; short-circuit
@@ -969,6 +976,9 @@ Function UnequipEquippedArmors(Actor npc, FormList maybeEquippedArmors, Bool ign
 EndFunction
 
 
+;
+; Quick-equip some (inventory) devices on the npc.
+;
 Int Function QuickEquipDevices(Armor[] devices, Int count, Bool equipRenderedDevices)
     DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
     ObjectReference[] tempRefs
@@ -1038,6 +1048,13 @@ Int Function QuickEquipDevices(Armor[] devices, Int count, Bool equipRenderedDev
 EndFunction
 
 
+;
+; Choose a device to be unequipped from the NPC, either when the NPC tries to free themselves,
+; or when somebody else wants to free the NPC. This will respect limitations, e.g. plugs can
+; only be unequipped after (most) belts, or NPCs need to get rid of heavy bondage first when
+; freeing self. It also gives more relevant devices a higher chance (e.g. gags are usually
+; selected before belts).
+;
 Armor Function ChooseDeviceForUnequip(Bool unequipSelf, Armor[] devicesToIgnore, Int devicesToIgnoreCount)
     Actor npc = GetReference() as Actor
     If (npc == None)
@@ -1092,7 +1109,7 @@ Armor Function ChooseDeviceForUnequip(Bool unequipSelf, Armor[] devicesToIgnore,
     Return deviceToUnequip
 EndFunction
 
-
+; check if it is possible to unequip the given device
 Bool Function CheckIfUnequipPossible(Actor npc, Armor inventoryDevice, Armor renderedDevice, zadLibs ddLibs, Bool unequipSelf) Global
     Int[] cachedCounts = new Int[10]
     cachedCounts[0] = -1 ; zad_DeviousHeavyBondage
@@ -1108,7 +1125,7 @@ Bool Function CheckIfUnequipPossible(Actor npc, Armor inventoryDevice, Armor ren
     Return CheckUnequipPossibleInternal(npc, inventoryDevice, renderedDevice, ddLibs, cachedCounts, unequipSelf)
 EndFunction
 
-
+; check if it is possible to unequip the devices in the array, re-using information as much as possible
 Function CheckIfUnequipPossibleArray(Actor npc, Armor[] inventoryDevices, Armor[] renderedDevices, Bool[] output, Int count, zadLibs ddLibs, Bool unequipSelf) Global
     Int[] cachedCounts = new Int[10]
     cachedCounts[0] = -1 ; zad_DeviousHeavyBondage
@@ -1127,7 +1144,6 @@ Function CheckIfUnequipPossibleArray(Actor npc, Armor[] inventoryDevices, Armor[
         index += 1
     EndWhile
 EndFunction
-
 
 Bool Function CheckUnequipPossibleInternal(Actor npc, Armor inventoryDevice, Armor renderedDevice, zadLibs ddLibs, Int[] cachedCounts, Bool unequipSelf) Global
     If (inventoryDevice == None || renderedDevice == None || inventoryDevice.HasKeyword(ddLibs.zad_BlockGeneric) || inventoryDevice.HasKeyword(ddLibs.zad_QuestItem))
@@ -1208,6 +1224,9 @@ Bool Function CheckUnequipPossibleInternal(Actor npc, Armor inventoryDevice, Arm
 EndFunction
 
 
+;
+; Get the "weight" to use when selecting a device for unequipping; this should be used as a probability.
+;
 Int Function GetWeigthForUnequip(zadLibs ddLibs, Armor renderedDevice, Bool enablePapyrusLogginf) Global ; higher is more important
     Int flags = AnylyzeMaybeDevice(ddLibs, ddLibs.zad_Lockable, true, ddLibs.zad_DeviousPlug, true, renderedDevice, false, enablePapyrusLogginf)
     If (Math.LogicalAnd(flags, 4) == 4)
@@ -1216,15 +1235,15 @@ Int Function GetWeigthForUnequip(zadLibs ddLibs, Armor renderedDevice, Bool enab
     EndIf
     If (Math.LogicalAnd(flags, 8) == 8)
         ; then mittens
-        Return 6
+        Return 8
     EndIf
     If (Math.LogicalAnd(flags, 32) == 32 || Math.LogicalAnd(flags, 128) == 128)
         ; then gags and blindfolds (this includes many hoods)
-        Return 3
+        Return 5
     EndIf
     If (Math.LogicalAnd(flags, 16) == 16)
         ; then fetters
-        Return 2
+        Return 3
     EndIf
     ; then everything else
     If (flags > 0)
@@ -1234,6 +1253,9 @@ Int Function GetWeigthForUnequip(zadLibs ddLibs, Armor renderedDevice, Bool enab
 EndFunction
 
 
+;
+; Make the NPC try to escape from a device by opening locks or struggling.
+;
 Bool Function TryToEscapeDevice(Armor device, Bool notifyPlayer)
     Actor npc = GetReference() as Actor
     Armor renderedDevice = DDNF_NpcTracker.GetRenderedDevice(device, false)
@@ -1257,7 +1279,7 @@ Bool Function TryToEscapeDevice(Armor device, Bool notifyPlayer)
     Int deviceFlags = AnylyzeMaybeDevice(ddLibs, ddLibs.zad_Lockable, true, ddLibs.zad_DeviousPlug, true, renderedDevice, false, npcTracker.enablePapyrusLogging)
     Bool deviceIsHeavyBondage = Math.LogicalAnd(deviceFlags, 4) == 4
     Bool deviceIsBondageMittens = Math.LogicalAnd(deviceFlags, 8) == 8
-    Bool handsBlocked = deviceIsBondageMittens || npc.GetItemCount(ddLibs.zad_DeviousBondageMittens) > 0 || npc.GetItemCount(ddLibs.zad_DeviousStraitJacket) > 0 ; TODO handle armbinders, problem is that most shackles are technically armbinders
+    Bool handsBlocked = deviceIsBondageMittens || npc.GetItemCount(ddLibs.zad_DeviousBondageMittens) > 0 || npc.GetItemCount(ddLibs.zad_DeviousStraitJacket) > 0
     Float difficultyModifier = equipScript.CalculateDifficultyModifier(true)
     Float lockAccessChance = 100
     If (equipScript.LockAccessDifficulty > 0)
@@ -1271,7 +1293,6 @@ Bool Function TryToEscapeDevice(Armor device, Bool notifyPlayer)
     If (npcTracker.EnablePapyrusLogging)
         Debug.Trace("[DDNF] " + DDNF_NpcTracker_NPC.GetFormIdAsString(npc) + " " + npc.GetDisplayName() + " trying to escape " + DDNF_NpcTracker_NPC.GetFormIdAsString(device) + " " + device.GetName() + ": unlockChance=" + unlockChance + ", struggleChance=" + struggleChance + ".")
     EndIf
-    Bool success
     String possessive = ""
     If (notifyPlayer)
        If (npc.GetLeveledActorBase().GetSex() == 0)
@@ -1280,6 +1301,7 @@ Bool Function TryToEscapeDevice(Armor device, Bool notifyPlayer)
            possessive = " her "
        EndIf
     EndIf
+    Bool success
     If (unlockChance > 0 && unlockChance >= struggleChance)
         If (unlockChance == 100 && !deviceIsHeavyBondage && !deviceIsBondageMittens)
             If (notifyPlayer)
@@ -1289,7 +1311,7 @@ Bool Function TryToEscapeDevice(Armor device, Bool notifyPlayer)
                     Debug.Notification(npc.GetDisplayName() + " unlocks" + possessive + equipScript.deviceName)
                 EndIf
             EndIf
-            Utility.Wait(5) ; only use half the usual time
+            Utility.Wait(5) ; no animation and only use half the usual time
             success = true
         Else
             If (notifyPlayer)
@@ -1335,7 +1357,6 @@ Bool Function TryToEscapeDevice(Armor device, Bool notifyPlayer)
     Return success
 EndFunction 
 
-
 Float Function Clamp(Float value, Float min, Float max) Global
     If (value < min)
         Return min
@@ -1345,7 +1366,6 @@ Float Function Clamp(Float value, Float min, Float max) Global
         Return value
     EndIf
 EndFunction
-
 
 Bool Function PlayStruggleAnimation(zadLibs ddLibs, zadEquipScript deviceInstance, Actor npc) Global
     String[] struggleArray = deviceInstance.SelectStruggleArray(npc)
@@ -1377,6 +1397,7 @@ Bool Function PlayStruggleAnimation(zadLibs ddLibs, zadEquipScript deviceInstanc
 EndFunction
 
 
+; helper for logging, converts form id to string
 String Function GetFormIdAsString(Form item) Global
     Int modId
     Int baseId
@@ -1394,7 +1415,6 @@ String Function GetFormIdAsString(Form item) Global
     hex += GetHexDigit((baseId / 0x00000010) % 0x10) + GetHexDigit(baseId % 0x10)
     Return hex
 EndFunction
-
 
 String Function GetHexDigit(Int nibble) Global
     If (nibble < 8)

@@ -14,10 +14,12 @@ Int Property OptionAllowManipulationOfDevices Auto
 Int Property OptionClearCachedDataOnMenuClose Auto
 
 Int Property OptionEnablePapyrusLogging Auto
+Int Property OptionTrackingId Auto
 Int Property OptionNumberOfDevices Auto
 Int Property OptionFixupOnMenuClose Auto
 
 String[] _deviceNames
+String[] _npcStates
 
 
 Event OnPageReset(string page)
@@ -38,6 +40,8 @@ Event OnPageReset(string page)
     OptionRestoreOriginalOutfit = AddToggleOption("Restore original outfits", MainQuest.NpcTracker.RestoreOriginalOutfit, a_flags = flags)
     OptionAllowManipulationOfDevices = AddToggleOption("Allow manipulation of devices", MainQuest.NpcTracker.AllowManipulationOfDevices, a_flags = flags)
 
+    SetCursorPosition(1)
+
     AddHeaderOption("Maintenance")
     OptionClearCachedDataOnMenuClose = AddToggleOption("Clear cached data on menu close", false, a_flags = flags)
 
@@ -53,9 +57,41 @@ Event OnPageReset(string page)
         DDNF_ExternalApi api = DDNF_ExternalApi.Get()
         Int trackingId = api.GetTrackingId(cursorActor)
         If (trackingId >= 0)
-            AddTextOption("  Tracking ID", "" + trackingId)
+            OptionTrackingId = AddMenuOption("  Tracking ID", "" + trackingId)
+            String[] statesArray = new String[6]
+            Int statesCount = 0
+            If (api.IsBound(trackingId))
+                statesArray[statesCount] = "bound"
+                statesCount += 1
+            EndIf
+            If (api.IsGagged(trackingId))
+                statesArray[statesCount] = "gagged"
+                statesCount += 1
+            EndIf
+            If (api.IsBlindfold(trackingId))
+                statesArray[statesCount] = "blindfold"
+                statesCount += 1
+            EndIf
+            If (api.IsHelpless(trackingId))
+                statesArray[statesCount] = "helpless"
+                statesCount += 1
+            EndIf
+            If (api.HasAnimation(trackingId))
+                statesArray[statesCount] = "has animation"
+                statesCount += 1
+            EndIf
+            If (api.UseUnarmedCombatAnimations(trackingId))
+                statesArray[statesCount] = "unarmed combat"
+                statesCount += 1
+            EndIf
+            _npcStates = Utility.CreateStringArray(statesCount)
+            Int statesIndex = 0
+            While (statesIndex < statesCount)
+                _npcStates[statesIndex] = statesArray[statesIndex]
+                statesIndex += 1
+            EndWhile
         Else
-            AddTextOption("  Tracking ID", "(not tracked)")
+            OptionTrackingId = AddTextOption("  Tracking ID", "(not tracked)")
         EndIf
         Armor[] devices = new Armor[32]
         Int deviceCount = api.GetEquippedDevicesOfAnyNpc(cursorActor, devices)
@@ -227,7 +263,9 @@ EndEvent
 
 
 Event OnOptionMenuOpen(Int option)
-    If (option == OptionNumberOfDevices)
+    If (option == OptionTrackingId)
+        SetMenuDialogOptions(_npcStates)
+    ElseIf (option == OptionNumberOfDevices)
         SetMenuDialogOptions(_deviceNames)
     EndIf
 EndEvent

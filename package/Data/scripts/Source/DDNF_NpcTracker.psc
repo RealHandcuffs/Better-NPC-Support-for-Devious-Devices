@@ -29,8 +29,13 @@ Float Property MaxFixupsPerThreeSeconds = 3.0 Auto
 Alias[] _cachedAliases ; performance optimization
 Form[] _cachedNpcs ; performance optimization
 Int _attemptedFixupsInPeriod
-Armor[] _dcurSpecialHandlingDevices
-Quest _zadcQuest
+Armor[] _dcurSpecialHandlingDevices ; for soft dependency to dcur
+Quest _zadcQuest ; for soft dependency to contraptions
+
+
+DDNF_NpcTracker Function Get() Global
+    Return Game.GetFormFromFile(0x00001827, "DD_NPC_Fixup.esp") as DDNF_NpcTracker
+EndFunction
 
 
 Alias[] Function GetAliases()
@@ -76,6 +81,7 @@ Function HandleGameLoaded(Bool upgrade)
         ; clear StorageUtil data
         ClearStorageUtilData()
     EndIf
+    ; refresh soft dependencies
     RefreshWeaponDisplayArmors()
     If (Game.GetFormFromFile(0x024495, "Deviously Cursed Loot.esp") == None) ; dcur_mainlib
         _dcurSpecialHandlingDevices = new Armor[1]
@@ -99,6 +105,13 @@ Function HandleGameLoaded(Bool upgrade)
     EndIf
 EndFunction
 
+Function ClearStorageUtilData()
+    StorageUtil.ClearAllPrefix("ddnf_")
+    If (EnablePapyrusLogging)
+        Debug.Trace("[DDNF] StorageUtil: ClearAllPrefix(ddnf_)")
+    EndIf
+EndFunction
+
 Function RefreshWeaponDisplayArmors()
     WeaponDisplayArmors.Revert()
     AddWeaponDisplayArmorsFromFormList("All Geared Up Derivative.esp", 0x02E0EE)
@@ -119,10 +132,10 @@ Function AddWeaponDisplayArmorsFromFormList(string fileName, Int formId)
     EndIf
 EndFunction
 
+
 Function HandleJournalMenuClosed()
     ValidateOptions()
 EndFunction
-
 
 Function ValidateOptions()
     Bool newUseBoundCombat = DDLibs.Config.UseBoundCombat
@@ -136,6 +149,7 @@ Function ValidateOptions()
         EndWhile
     EndIf
 EndFunction
+
 
 ;
 ; Queue a NPC for fixup. This will add the NPC to the tracked NPCs if necessary.
@@ -152,6 +166,7 @@ Int Function QueueForFixup(Actor npc)
     EndIf
     Return Add(npc)
 EndFunction
+
 
 ;
 ; Add a NPC to the tracked NPCs.
@@ -207,14 +222,9 @@ Function Clear(Bool clearStorageUtilData)
 EndFunction
 
 
-Function ClearStorageUtilData()
-    StorageUtil.ClearAllPrefix("ddnf_")
-    If (EnablePapyrusLogging)
-        Debug.Trace("[DDNF] StorageUtil: ClearAllPrefix(ddnf_)")
-    EndIf
-EndFunction
-
-
+;
+; Called when a device is equipped on a NPC.
+;
 Function HandleDeviceEquipped(Actor akActor, Armor inventoryDevice, Bool checkForNotEquippedBug)
     If (Add(akActor) >= 0 && checkForNotEquippedBug)
         ; workaround for the OnContainerChanged event not firing, causing the device to not getting equipped
@@ -248,6 +258,9 @@ Function HandleDeviceEquipped(Actor akActor, Armor inventoryDevice, Bool checkFo
 EndFunction
 
 
+;
+; Called when player selects a device that is equipped on a NPC in container menu.
+;
 Function HandleDeviceSelectedInContainerMenu(Actor npc, Armor inventoryDevice, Armor renderedDevice)
     If (!AllowManipulationOfDevices || inventoryDevice.HasKeyword(ddLibs.zad_BlockGeneric) || inventoryDevice.HasKeyword(ddLibs.zad_QuestItem))
         Return ; do not manipulate quest devices
@@ -279,7 +292,6 @@ Function HandleDeviceSelectedInContainerMenu(Actor npc, Armor inventoryDevice, A
     EndIf
 EndFunction
 
-
 Bool Function EnsureDeviceStillEquippedAfterPlayerSelection(Actor npc, Armor inventoryDevice, Armor renderedDevice)
     If (npc.GetItemCount(renderedDevice) > 0)
         Return true
@@ -299,6 +311,9 @@ Bool Function EnsureDeviceStillEquippedAfterPlayerSelection(Actor npc, Armor inv
 EndFunction
 
 
+;
+; Unequip a device from an NPC, with correct handling of soft dependencies.
+;
 Bool Function UnlockDevice(Actor npc, Armor inventoryDevice, Armor renderedDevice, Keyword deviceKeyword)
     If (_dcurSpecialHandlingDevices[0] != None)
         Int dcurDeviceIndex = _dcurSpecialHandlingDevices.Find(inventoryDevice)
@@ -311,6 +326,9 @@ Bool Function UnlockDevice(Actor npc, Armor inventoryDevice, Armor renderedDevic
 EndFunction
 
 
+;
+; Check if a NPC is in a contraption (soft dependency).
+;
 ObjectReference Function TryGetCurrentContraption(Actor npc)
     If (_zadcQuest == None)
         Return None
@@ -342,17 +360,14 @@ Float Function NeedToSlowDownBeforeFixup(Actor npc)
     Return ((_attemptedFixupsInPeriod as Float) / MaxFixupsPerThreeSeconds) * 3.0 ; backoff, wait longer if more fixups have been tried
 EndFunction
 
-
 Event OnUpdate()
     _attemptedFixupsInPeriod = 0 ; reset to zero
 EndEvent
 
 
-DDNF_NpcTracker Function Get() Global
-    Return Game.GetFormFromFile(0x00001827, "DD_NPC_Fixup.esp") as DDNF_NpcTracker
-EndFunction
-
-
+;
+; Get the rendered device for an inventory device.
+;
 Armor Function GetRenderedDevice(Armor maybeInventoryDevice, Bool fromCacheOnly) Global
     If (maybeInventoryDevice == None)
         Return None
@@ -371,6 +386,9 @@ Armor Function GetRenderedDevice(Armor maybeInventoryDevice, Bool fromCacheOnly)
 EndFunction
 
 
+;
+; Try to get the inventory device for a rendered device.
+;
 Armor Function TryGetInventoryDevice(Armor renderedDevice) Global
     If (renderedDevice == None)
         Return None
@@ -379,6 +397,9 @@ Armor Function TryGetInventoryDevice(Armor renderedDevice) Global
 EndFunction
 
 
+;
+; Cache link between rendered device and inventory device.
+;
 Function LinkInventoryDeviceAndRenderedDevice(Armor inventoryDevice, Armor renderedDevice, Bool enablePapyrusLogging) Global
     StorageUtil.SetFormValue(inventoryDevice, "ddnf_r", renderedDevice)
     StorageUtil.SetFormValue(renderedDevice, "ddnf_i", inventoryDevice)
