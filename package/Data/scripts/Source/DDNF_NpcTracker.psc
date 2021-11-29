@@ -291,7 +291,7 @@ Function HandleDeviceSelectedInContainerMenu(Actor npc, Armor inventoryDevice, A
     EndIf
     If (renderedDevice.HasKeyword(ddLibs.zad_DeviousGagPanel))
         ; allow player to remove/insert panel gag plug
-        If (DDNF_NpcTracker_NPC.CheckIfUnequipPossible(npc, inventoryDevice, renderedDevice, DDLibs, false))
+        If (DDNF_NpcTracker_NPC.CheckIfUnequipPossible(npc, inventoryDevice, renderedDevice, DDLibs, false, false))
             Int selection = ManipulatePanelGagInstead.Show()
             If (selection > 0 && EnsureDeviceStillEquippedAfterPlayerSelection(npc, inventoryDevice, renderedDevice))
                 If (selection == 1) ; remove plug

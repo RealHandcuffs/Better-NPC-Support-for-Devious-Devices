@@ -125,6 +125,7 @@ Version 0.5 beta 4
 - Some bugfixes, e.g. race conditions when loading game
 - Change layout of MCM
 
-Version 0.5 beta 4
-- Tweak escape system, especially timing and messages
-- Some MCM tweaks
+Version 0.5 beta 5
+- Tweak timing and messages of escape system
+- Fix handling of quest devices by escape system (will now struggle but always fail)
+- More MCM improvements

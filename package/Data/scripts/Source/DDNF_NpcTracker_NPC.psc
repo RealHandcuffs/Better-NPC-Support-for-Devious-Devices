@@ -1115,9 +1115,8 @@ Event OnUpdateGameTime()
             If (struggleFrequency > 0)
                 ; escape system is enabled for this NPC
                 Float hoursSinceLastAttempt = (Utility.GetCurrentGameTime() - _lastEscapeAttemptGameTime) * 24.0
-                Float thresholdForNextAttempt = struggleFrequency - 0.25 ; allow some leeway
-                If (hoursSinceLastAttempt >= thresholdForNextAttempt)
-                    If (_lastEscapeAttemptGameTime >= -24 && hoursSinceLastAttempt - thresholdForNextAttempt > 0.6) 
+                If (hoursSinceLastAttempt >= struggleFrequency)
+                    If (_lastEscapeAttemptGameTime >= -24 && (hoursSinceLastAttempt - struggleFrequency) > 0.6) 
                         Utility.Wait(Utility.RandomFloat(4, 24)) ; wait some time to give scripts time after fast travel/wait/sleep and to introduce additonal jitter
                     EndIf
                     If (npcTracker.EnablePapyrusLogging)
@@ -1179,7 +1178,7 @@ Int Function PerformEscapeAttempt(Bool suppressNotifications)
     If (npcTracker.EnablePapyrusLogging)
         Debug.Trace("[DDNF] Performing escape attempt for " + GetFormIdAsString(npc) + " " + npc.GetDisplayName() + ".")
     EndIf
-    Bool displayNotifications = !suppressNotifications && npcTracker.NotifyPlayerOfCurrentFollowerStruggle && IsCurrentFollower(npc, npcTracker)
+    Bool displayNotifications = !suppressNotifications && npcTracker.EscapeSystemEnabled && npcTracker.NotifyPlayerOfCurrentFollowerStruggle && IsCurrentFollower(npc, npcTracker)
     Armor[] failedDevices = new Armor[32]
     Int failedDevicesCount = 0
     Int noChanceDeviceCount = 0
@@ -1190,11 +1189,13 @@ Int Function PerformEscapeAttempt(Bool suppressNotifications)
         If (lastUnequippedDevice != None)
             Utility.Wait(2) ; short break between unequipping devices
         EndIf
-        Armor deviceToUnequip = ChooseDeviceForUnequip(true, failedDevices, failedDevicesCount)
+        Armor deviceToUnequip = ChooseDeviceForUnequip(true, failedDevices, failedDevicesCount, true) ; allow quest devices, they will fail in TryToEscapeDevice
         If (deviceToUnequip == None)
             abortEscapeAttempt = true
-        ElseIf (npcTracker.enablePapyrusLogging)
-            Debug.Trace("[DDNF] Escape attempt (" + GetFormIdAsString(npc) + " " + npc.GetDisplayName() +  "): Found device " + GetFormIdAsString(deviceToUnequip) + " " + deviceToUnequip.GetName() + ".")
+        Else
+            If (npcTracker.enablePapyrusLogging)
+                Debug.Trace("[DDNF] Escape attempt (" + GetFormIdAsString(npc) + " " + npc.GetDisplayName() +  "): Found device " + GetFormIdAsString(deviceToUnequip) + " " + deviceToUnequip.GetName() + ".")
+            EndIf
             Bool[] escapeResult = TryToEscapeDevice(deviceToUnequip, displayNotifications, doNotStruggleIfChanceZeroPercent)
             If (escapeResult[0])
                succeededDeviceCount += 1
@@ -1322,7 +1323,7 @@ EndFunction
 ; freeing self. It also gives more relevant devices a higher chance (e.g. gags are usually
 ; selected before belts).
 ;
-Armor Function ChooseDeviceForUnequip(Bool unequipSelf, Armor[] devicesToIgnore, Int devicesToIgnoreCount)
+Armor Function ChooseDeviceForUnequip(Bool unequipSelf, Armor[] devicesToIgnore, Int devicesToIgnoreCount, Bool allowQuestDevices)
     Actor npc = GetReference() as Actor
     If (npc == None)
         Return None
@@ -1346,7 +1347,7 @@ Armor Function ChooseDeviceForUnequip(Bool unequipSelf, Armor[] devicesToIgnore,
         index += 1
     EndWhile
     Bool[] unequipPossible = new Bool[32]
-    CheckIfUnequipPossibleArray(npc, inventoryDevices, renderedDevices, unequipPossible, deviceCount, npcTracker.DDLibs, unequipSelf)
+    CheckIfUnequipPossibleArray(npc, inventoryDevices, renderedDevices, unequipPossible, deviceCount, npcTracker.DDLibs, unequipSelf, allowQuestDevices)
     Armor[] selectionArray = new Armor[128]
     Int selectionArrayIndex = 0
     index = 0
@@ -1371,7 +1372,7 @@ Armor Function ChooseDeviceForUnequip(Bool unequipSelf, Armor[] devicesToIgnore,
 EndFunction
 
 ; check if it is possible to unequip the given device
-Bool Function CheckIfUnequipPossible(Actor npc, Armor inventoryDevice, Armor renderedDevice, zadLibs ddLibs, Bool unequipSelf) Global
+Bool Function CheckIfUnequipPossible(Actor npc, Armor inventoryDevice, Armor renderedDevice, zadLibs ddLibs, Bool unequipSelf, Bool allowQuestDevices) Global
     Int[] cachedCounts = new Int[10]
     cachedCounts[0] = -1 ; zad_DeviousHeavyBondage
     cachedCounts[1] = -1 ; zad_DeviousBondageMittens
@@ -1383,11 +1384,11 @@ Bool Function CheckIfUnequipPossible(Actor npc, Armor inventoryDevice, Armor ren
     cachedCounts[7] = -1 ; zad_PermitAnal
     cachedCounts[8] = -1 ; zad_DeviousBra
     cachedCounts[9] = -1 ; zad_BraNoBlockPiercings
-    Return CheckUnequipPossibleInternal(npc, inventoryDevice, renderedDevice, ddLibs, cachedCounts, unequipSelf)
+    Return CheckUnequipPossibleInternal(npc, inventoryDevice, renderedDevice, ddLibs, cachedCounts, unequipSelf, allowQuestDevices)
 EndFunction
 
 ; check if it is possible to unequip the devices in the array, re-using information as much as possible
-Function CheckIfUnequipPossibleArray(Actor npc, Armor[] inventoryDevices, Armor[] renderedDevices, Bool[] output, Int count, zadLibs ddLibs, Bool unequipSelf) Global
+Function CheckIfUnequipPossibleArray(Actor npc, Armor[] inventoryDevices, Armor[] renderedDevices, Bool[] output, Int count, zadLibs ddLibs, Bool unequipSelf, Bool allowQuestDevices) Global
     Int[] cachedCounts = new Int[10]
     cachedCounts[0] = -1 ; zad_DeviousHeavyBondage
     cachedCounts[1] = -1 ; zad_DeviousBondageMittens
@@ -1401,13 +1402,16 @@ Function CheckIfUnequipPossibleArray(Actor npc, Armor[] inventoryDevices, Armor[
     cachedCounts[9] = -1 ; zad_BraNoBlockPiercings
     Int index = 0
     While (index < count)
-        output[index] = CheckUnequipPossibleInternal(npc, inventoryDevices[index], renderedDevices[index], ddLibs, cachedCounts, unequipSelf)
+        output[index] = CheckUnequipPossibleInternal(npc, inventoryDevices[index], renderedDevices[index], ddLibs, cachedCounts, unequipSelf, allowQuestDevices)
         index += 1
     EndWhile
 EndFunction
 
-Bool Function CheckUnequipPossibleInternal(Actor npc, Armor inventoryDevice, Armor renderedDevice, zadLibs ddLibs, Int[] cachedCounts, Bool unequipSelf) Global
-    If (inventoryDevice == None || renderedDevice == None || inventoryDevice.HasKeyword(ddLibs.zad_BlockGeneric) || inventoryDevice.HasKeyword(ddLibs.zad_QuestItem))
+Bool Function CheckUnequipPossibleInternal(Actor npc, Armor inventoryDevice, Armor renderedDevice, zadLibs ddLibs, Int[] cachedCounts, Bool unequipSelf, Bool allowQuestDevices) Global
+    If (inventoryDevice == None || renderedDevice == None)
+        Return false
+    EndIf
+    If (!allowQuestDevices && (inventoryDevice.HasKeyword(ddLibs.zad_BlockGeneric) || inventoryDevice.HasKeyword(ddLibs.zad_QuestItem) || renderedDevice.HasKeyword(ddLibs.zad_BlockGeneric) || renderedDevice.HasKeyword(ddLibs.zad_QuestItem)))
         Return false
     EndIf
     If (unequipSelf)
@@ -1531,7 +1535,7 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool doNotStr
         Return new Bool[1] ; NPC is currently held by devious contraption
     EndIf
     zadLibs ddLibs = npcTracker.DDLibs
-    If (!CheckIfUnequipPossible(npc, device, renderedDevice, ddLibs, true)) ; will also check for zad_BlockGeneric/zad_QuestItem
+    If (!CheckIfUnequipPossible(npc, device, renderedDevice, ddLibs, true, true)) ; allow quest devices here, we will check zad_BlockGeneric/zad_QuestItem later
         Return new Bool[1]
     EndIf
 
@@ -1546,16 +1550,20 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool doNotStr
     Bool deviceIsHeavyBondage = Math.LogicalAnd(deviceFlags, 4) == 4
     Bool deviceIsBondageMittens = Math.LogicalAnd(deviceFlags, 8) == 8
     Bool handsBlocked = deviceIsBondageMittens || npc.GetItemCount(ddLibs.zad_DeviousBondageMittens) > 0 || npc.GetItemCount(ddLibs.zad_DeviousStraitJacket) > 0
+    Bool deviceIsQuestDevice = device.HasKeyword(ddLibs.zad_BlockGeneric) || device.HasKeyword(ddLibs.zad_QuestItem) || renderedDevice.HasKeyword(ddLibs.zad_BlockGeneric) || renderedDevice.HasKeyword(ddLibs.zad_QuestItem)
     Float difficultyModifier = equipScript.CalculateDifficultyModifier(true)
     Float lockAccessChance = 100
     If (equipScript.LockAccessDifficulty > 0)
         lockAccessChance = Clamp((100 - equipScript.LockAccessDifficulty) * difficultyModifier, 0, 100)
     EndIf
     Float unlockChance = 0
-    If (!handsBlocked && lockAccessChance > 0 && (equipScript.deviceKey == None || npc.GetItemCount(equipScript.deviceKey) >= equipScript.NumberOfKeysNeeded))
+    If (!handsBlocked && !deviceIsQuestDevice && lockAccessChance > 0 && (equipScript.deviceKey == None || npc.GetItemCount(equipScript.deviceKey) >= equipScript.NumberOfKeysNeeded))
         unlockChance = lockAccessChance
     EndIf
-    Float struggleChance = Clamp(equipScript.BaseEscapeChance * difficultyModifier, 0, 100)
+    Float struggleChance = 0
+    If (!deviceIsQuestDevice)
+        struggleChance = Clamp(equipScript.BaseEscapeChance * difficultyModifier, 0, 100)
+    EndIf
 
     ; try to escape, notifying the player if the option is set
     String possessive = ""
@@ -1606,18 +1614,18 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool doNotStr
             PlayStruggleAnimation(ddLibs, equipScript, npc)
             success = struggleChance > 0 && Utility.RandomFloat(0, 99.9) < struggleChance
         EndIf
-        Bool recheckConditions = CheckIfUnequipPossible(npc, device, renderedDevice, ddLibs, true)
-        If (recheckConditions && useUnlockAction)
-            recheckConditions = equipScript.deviceKey == None || npc.GetItemCount(equipScript.deviceKey) >= equipScript.NumberOfKeysNeeded
-            If (recheckConditions)
-                recheckConditions = npc.GetItemCount(ddLibs.zad_DeviousBondageMittens) == 0 && npc.GetItemCount(ddLibs.zad_DeviousStraitJacket) == 0
-            EndIf
-        EndIf
-        If (!recheckConditions)
-            tempRef.Delete()
-            Return new Bool[1] ; abort because of inventory change
-        EndIf
         If (success)
+            Bool recheckConditions = CheckIfUnequipPossible(npc, device, renderedDevice, ddLibs, true, false)
+            If (recheckConditions && useUnlockAction)
+                recheckConditions = equipScript.deviceKey == None || npc.GetItemCount(equipScript.deviceKey) >= equipScript.NumberOfKeysNeeded
+                If (recheckConditions)
+                    recheckConditions = npc.GetItemCount(ddLibs.zad_DeviousBondageMittens) == 0 && npc.GetItemCount(ddLibs.zad_DeviousStraitJacket) == 0
+                EndIf
+            EndIf
+            If (!recheckConditions)
+                tempRef.Delete()
+                Return new Bool[1] ; abort because of inventory change
+            EndIf
             success = npcTracker.UnlockDevice(npc, equipScript.deviceInventory, equipScript.deviceRendered, equipScript.zad_DeviousDevice)
         EndIf
         If (success)

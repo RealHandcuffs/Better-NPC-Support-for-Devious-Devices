@@ -202,7 +202,7 @@ Armor Function ChooseDeviceForUnequipWithIgnoredDevices(Int trackingId, Bool une
         Alias[] aliases = ((Self as Quest) as DDNF_NpcTracker).GetAliases()
         If (trackingId < aliases.Length)
             DDNF_NpcTracker_NPC npcTracker = aliases[trackingId] as DDNF_NpcTracker_NPC
-            Return npcTracker.ChooseDeviceForUnequip(unequipSelf, devicesToIgnore, devicesToIgnoreCount)
+            Return npcTracker.ChooseDeviceForUnequip(unequipSelf, devicesToIgnore, devicesToIgnoreCount, false)
         EndIf
     EndIf
     Return None
