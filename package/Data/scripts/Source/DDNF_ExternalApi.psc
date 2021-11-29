@@ -16,7 +16,6 @@ EndFunction
 ; Tracking IDs are stable as long as the NPC is being tracked. When the mod stops tracking a NPC, it is allowed
 ; to re-use the tracking ID for a different NPC, so tracking IDs should not be stored long term. Tracking IDs
 ; are positive integer. This function will return a negative number if the NPC is not being tracked.
-; Condition functions can instead check for the keyword DDNF_Tracked (0x??001828) for a simple IsTracked check.
 ;
 Int Function GetTrackingId(Actor npc)
     If (npc == None)
@@ -24,6 +23,20 @@ Int Function GetTrackingId(Actor npc)
     EndIf
     Form[] npcs = ((Self as Quest) as DDNF_NpcTracker).GetNpcs()
     Return npcs.Find(npc)
+EndFunction
+
+
+;
+; Get the tracking ID of a NPC that is currently being tracked, or add the NPC to be tracked if it is not.
+; Tracking IDs are stable as long as the NPC is being tracked. When the mod stops tracking a NPC, it is allowed
+; to re-use the tracking ID for a different NPC, so tracking IDs should not be stored long term. Tracking IDs
+; are positive integer. This function will return a negative number if the NPC cannot be tracked.
+;
+Int Function GetOrCreateTrackingId(Actor npc)
+    If (npc == None)
+        Return -1
+    EndIf
+    Return ((Self as Quest) as DDNF_NpcTracker).Add(npc)
 EndFunction
 
 
@@ -141,24 +154,6 @@ EndFunction
 
 
 ;
-; Get the equipped devious devices of any NPC, even untracked NPCs. This will be slow for untracked NPCs.
-; The function will add the found devices to outputArray and return the number of devices. The output array
-; needs to be large enough to hold all found devices.
-;
-Int Function GetEquippedDevicesOfAnyNpc(Actor npc, Armor[] outputArray, Keyword optionalFilterKeyword = None)
-    DDNF_NpcTracker tracker = (Self as Quest) as DDNF_NpcTracker
-    If (npc != None)
-        Form[] npcs = tracker.GetNpcs()
-        Int trackingId = npcs.Find(npc)
-        If (trackingId >= 0)
-            Return GetEquippedDevices(trackingId, outputArray, optionalFilterKeyword)
-        EndIf
-    EndIf
-    Return DDNF_NpcTracker_NPC.ScanForEquippedInventoryDevices(tracker.DDLibs, npc, outputArray, optionalFilterKeyword)
-EndFunction
-
-
-;
 ; Get the rendered device for the given inventory device.
 ;
 Armor Function GetRenderedDevice(Armor device) Global
@@ -192,34 +187,6 @@ EndFunction
 
 
 ;
-; Quick-equip devices on any NPC, even untracked NPCs.
-; This will partially bypass the Devious Devices API; as a consequence it will be faster but less safe and not
-; trigger DD events, so you need to know what you are doing. It will not equip a device if the NPC has a
-; conflicting device equipped.
-; Devices needs to contain the inventory devices. If devicesCount is >= 0 then this function will only equip
-; the first devicesCount items of the array.  If instantEquipRenderedDevices is true then the function will equip
-; the rendered devices instantly instead of waiting for the next fixup, this looks better but places more load on the
-; game engine.This function returns the count of the added devices.
-;
-Int Function QuickEquipDevicesOnAnyNpc(Actor npc, Armor[] devices, Int devicesCount = -1, Bool instantEquipRenderedDevices = false)
-    Int count = devicesCount
-    If (count < 0 || count > devices.Length)
-        count = devices.Length
-    EndIf
-    If (npc == None || count == 0)
-        Return 0 ; nothing to do
-    EndIf
-    DDNF_NpcTracker tracker = (Self as Quest) as DDNF_NpcTracker
-    Int trackingId = tracker.Add(npc)
-    If (trackingId < 0)
-        Return 0 ; not able to track npc
-    EndIf
-    DDNF_NpcTracker_NPC npcTracker = tracker.GetAliases()[trackingId] as DDNF_NpcTracker_NPC
-    Return npcTracker.QuickEquipDevices(devices, count, instantEquipRenderedDevices)
-EndFunction
-
-
-;
 ; Try to choose a device that is a good candidate for unequipping on a currently tracked NPC.
 ; If unequipSelf is true then this function will assume that the NPC is trrying to unequip the device
 ; themselves, if false then this function will assume that somebody else is unequipping it.
@@ -243,71 +210,17 @@ EndFunction
 
 
 ;
-; Try to choose a device that is a good candidate for unequipping on any NPC.
-; If unequipSelf is true then this function will assume that the NPC is trrying to unequip the device
-; themselves, if false then this function will assume that somebody else is unequipping it.
-; This will return None if no device can be unequipped.
-; WARNING: This function has to do a complex analysis of all equipped devices and is therefore slow.
-;
-Armor Function ChooseDeviceForUnequipOnAnyNpc(Actor npc, Bool unequipSelf)
-    ChooseDeviceForUnequipOnAnyNpcWithIgnoredDevices(npc, unequipSelf, new Armor[1], 0)
-EndFunction
-
-Armor Function ChooseDeviceForUnequipOnAnyNpcWithIgnoredDevices(Actor npc, Bool unequipSelf, Armor[] devicesToIgnore, Int devicesToIgnoreCount)
-    If (npc == None)
-        Return None ; nothing to do
-    EndIf
-    DDNF_NpcTracker tracker = (Self as Quest) as DDNF_NpcTracker
-    Int trackingId = tracker.Add(npc)
-    If (trackingId < 0)
-        Return None ; not able to track npc
-    EndIf
-    DDNF_NpcTracker_NPC npcTracker = tracker.GetAliases()[trackingId] as DDNF_NpcTracker_NPC
-    Return npcTracker.ChooseDeviceForUnequip(unequipSelf, devicesToIgnore, devicesToIgnoreCount)
-EndFunction
-
-
-;
 ; Let a currently tracked NPC attempt to escape either one or all devices. This function can take a long time,
-; up to several minutes. If a device is passed then the NPC will try to escape that device, otherwise the NPC
-; will try to escape all devices. Set suppressNotifications to disable notifications even if enabled in MCM.
+; up to several minutes. Set suppressNotifications to disable notifications even if enabled in MCM.
 ; Returns -1 if the attempt was blocked (e.g. another escape attempt already ongoing), the number of removed devices otherwise.
 ;
-Int Function PerformEscapeAttempt(Int trackingId, Armor device = None, Bool suppressNotifications = false)
+Int Function PerformEscapeAttempt(Int trackingId, Bool suppressNotifications = false)
     If (trackingId >= 0)
         Alias[] aliases = ((Self as Quest) as DDNF_NpcTracker).GetAliases()
         If (trackingId < aliases.Length)
             DDNF_NpcTracker_NPC npcTracker = aliases[trackingId] as DDNF_NpcTracker_NPC
-            Int[] resultCounts = npcTracker.PerformEscapeAttempt(device, suppressNotifications, false)
-            If (resultCounts.Length == 1)
-                Return -1
-            EndIf
-            Return resultCounts[0]
+            Return npcTracker.PerformEscapeAttempt(suppressNotifications)
         EndIf
     EndIf
     Return -1
-EndFunction
-
-
-;
-; Let any NPC attempt to escape either one or all devices. This function can take a long time, up to several
-; minutes. If a device is passed then the NPC will try to escape that device, otherwise the NPC will try to
-; escape all devices. Set suppressNotifications to disable notifications even if enabled in MCM.
-; Returns -1 if the attempt was aborted (e.g. another escape attempt already ongoing), the number of removed devices otherwise.
-;
-Bool Function PerformEscapeAttemptOnAnyNpc(Actor npc, Armor device = None, Bool suppressNotifications = false)
-    If (npc == None)
-        Return -1 ; nothing to do
-    EndIf
-    DDNF_NpcTracker tracker = (Self as Quest) as DDNF_NpcTracker
-    Int trackingId = tracker.Add(npc)
-    If (trackingId < 0)
-        Return -1 ; not able to track npc
-    EndIf
-    DDNF_NpcTracker_NPC npcTracker = tracker.GetAliases()[trackingId] as DDNF_NpcTracker_NPC
-    Int[] resultCounts = npcTracker.PerformEscapeAttempt(device, suppressNotifications, false)
-    If (resultCounts.Length == 1)
-        Return -1
-    EndIf
-    Return resultCounts[0]
 EndFunction

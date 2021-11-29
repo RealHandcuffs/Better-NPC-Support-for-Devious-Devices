@@ -124,3 +124,7 @@ Version 0.5 beta 4
 - First version of escape system, disabled by default, needs to be enabled in MCM
 - Some bugfixes, e.g. race conditions when loading game
 - Change layout of MCM
+
+Version 0.5 beta 4
+- Tweak escape system, especially timing and messages
+- Some MCM tweaks

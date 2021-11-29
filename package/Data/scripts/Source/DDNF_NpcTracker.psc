@@ -146,6 +146,9 @@ Function ValidateOptions()
     Bool newUseBoundCombat = DDLibs.Config.UseBoundCombat
     If (useBoundCombat != newUseBoundCombat)
         UseBoundCombat = newUseBoundCombat
+        If (EnablePapyrusLogging)
+            Debug.Trace("[DDNF] Looping over aliases after relevant change to options.")
+        EndIf
         Int index = 0
         Alias[] aliases = GetAliases()
         While (index < aliases.Length)
@@ -231,11 +234,19 @@ EndFunction
 ; Called when a device is equipped on a NPC.
 ;
 Function HandleDeviceEquipped(Actor akActor, Armor inventoryDevice, Bool checkForNotEquippedBug)
-    If (Add(akActor) >= 0 && checkForNotEquippedBug)
+    Int index = GetNpcs().Find(akActor)
+    If (index < 0)
+        index = Add(akActor)
+        If (index >= 0)
+            DDNF_NpcTracker_NPC tracker = GetAliases()[index] as DDNF_NpcTracker_NPC
+            tracker.KickEscapeSystem(true)
+        EndIf
+    EndIf
+    If (index >= 0 && checkForNotEquippedBug)
         ; workaround for the OnContainerChanged event not firing, causing the device to not getting equipped
         ; this seems to be a "random" engine bug and can be fixed by dropping the object
         ; it seems to happen more often (?) if the player has multiple copies of the item, and/or if the item has recently been acquired
-        Utility.Wait(2.0)
+        Utility.WaitMenuMode(2.0)
         Armor renderedDevice = DDNF_NpcTracker.GetRenderedDevice(inventoryDevice, false)
         If (renderedDevice != None && akActor.GetItemCount(renderedDevice) == 0)
             ; it's not equipped, equip it, but first recheck if inventory device has been removed
