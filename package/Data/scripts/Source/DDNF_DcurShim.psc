@@ -3,16 +3,9 @@
 ;
 Scriptname DDNF_DcurShim
 
-Armor[] Function GetSpecialHandlingDevices() Global
-    Armor[] devices = new Armor[2]
-    devices[0] = Game.GetFormFromFile(0x057e25, "Deviously Cursed Loot.esp") as Armor ; Rubber Gloves with D-links
-    devices[1] = Game.GetFormFromFile(0x04dbc0, "Deviously Cursed Loot.esp") as Armor ; Rubber Gloves (locked)
-    Return devices
-EndFunction
-
-Function HandleDeviceSelectedInContainerMenu(DDNF_NpcTracker npcTracker, Actor npc, Armor inventoryDevice, Armor renderedDevice, Armor[] dcurSpecialHandlingDevices, Int dcurDeviceIndex) Global
-    If (dcurDeviceIndex == 0)
-        ; Rubber Gloves with D-links, player may want to link them (replace with Rubber Gloves (locked))
+Bool Function HandleDeviceSelectedInContainerMenu(DDNF_NpcTracker npcTracker, Actor npc, Armor inventoryDevice, Armor renderedDevice) Global
+    Int modInternalFormId = DDNF_Game.GetModInternalFormId(inventoryDevice.GetFormID())
+    If (modInternalFormId == 0x057e25) ; Rubber Gloves with D-links
         If (npc.GetItemCount(npcTracker.DDLibs.zad_DeviousHeavyBondage) == 0) ; not possible if already wearing heavy bondage
             Message msg = Game.GetFormFromFile(0x006397, "DD_NPC_Fixup.esp") as Message
             Int selection = msg.Show()
@@ -22,15 +15,15 @@ Function HandleDeviceSelectedInContainerMenu(DDNF_NpcTracker npcTracker, Actor n
                     npc.RemoveItem(renderedDevice)
                     npc.RemoveItem(inventoryDevice)
                     Armor[] devices = new Armor[1]
-                    devices[0] = dcurSpecialHandlingDevices[1]
+                    devices[0] = Game.GetFormFromFile(0x04dbc0, "Deviously Cursed Loot.esp") as Armor ; Rubber Gloves (locked)
                     If ((npcTracker.GetAliases()[index] as DDNF_NpcTracker_NPC).QuickEquipDevices(devices, 1, true) == 0) ; not expected but handle it
                         npc.AddItem(inventoryDevice)
                     EndIf
                 EndIf
             EndIf
         EndIf
-    ElseIf (dcurDeviceIndex == 1)
-        ; Rubber Gloves (locked), replace with Rubber Gloves with D-links if unequipped
+        Return true
+    ElseIf (modInternalFormId == 0x04dbc0) ; Rubber Gloves (locked)
         dcur_mastercontrollerscript mcs = Game.GetFormFromFile(0x025A23, "Deviously Cursed Loot.esp") as dcur_mastercontrollerscript
         Bool unlockReset = false
         If (mcs.UnlockRubberGloves)
@@ -40,7 +33,7 @@ Function HandleDeviceSelectedInContainerMenu(DDNF_NpcTracker npcTracker, Actor n
         Int waitCount = 0
         While (!unlockReset && waitCount < 600)
             If (npc.GetItemCount(inventoryDevice) > 0)
-                Return
+                Return true
             EndIf
             If (mcs.UnlockRubberGloves)
                 mcs.UnlockRubberGloves = False
@@ -61,22 +54,21 @@ Function HandleDeviceSelectedInContainerMenu(DDNF_NpcTracker npcTracker, Actor n
             Int index = npcTracker.Add(npc)
             If (index >= 0)
                 Armor[] devices = new Armor[1]
-                devices[0] = dcurSpecialHandlingDevices[0]
+                devices[0] = Game.GetFormFromFile(0x057e25, "Deviously Cursed Loot.esp") as Armor ; Rubber Gloves with D-links
                 If ((npcTracker.GetAliases()[index] as DDNF_NpcTracker_NPC).QuickEquipDevices(devices, 1, true) == 0) ; e.g. when wearing other gloves
                     npcTracker.Player.AddItem(devices[0], aiCount=1, abSilent=true)
                 EndIf
             EndIf
         EndIf
+        Return true
     EndIf
+    Return false
 EndFunction
 
 
-Bool Function UnlockDevice(DDNF_NpcTracker npcTracker, Actor npc, Armor inventoryDevice, Armor renderedDevice, Keyword deviceKeyword, Armor[] dcurSpecialHandlingDevices, Int dcurDeviceIndex) Global
-    If (dcurDeviceIndex == 0)
-        ; Rubber Gloves with D-links, handle generically
-        Return npcTracker.DDLibs.UnlockDevice(npc, inventoryDevice, renderedDevice, deviceKeyword, false, true)
-    ElseIf (dcurDeviceIndex == 1)
-         ; Rubber Gloves (locked), replace with Rubber Gloves with D-links if unequipped
+Bool Function UnlockDevice(DDNF_NpcTracker npcTracker, Actor npc, Armor inventoryDevice, Armor renderedDevice, Keyword deviceKeyword) Global
+    Int modInternalFormId = DDNF_Game.GetModInternalFormId(inventoryDevice.GetFormID())
+    If (modInternalFormId == 0x04dbc0) ; Rubber Gloves (locked)
         Int index = npcTracker.Add(npc)
         If (index < 0)
             Return false
@@ -84,10 +76,11 @@ Bool Function UnlockDevice(DDNF_NpcTracker npcTracker, Actor npc, Armor inventor
         npc.RemoveItem(renderedDevice)
         npc.RemoveItem(inventoryDevice)
         Armor[] devices = new Armor[1]
-        devices[0] = dcurSpecialHandlingDevices[0]
+        devices[0] = Game.GetFormFromFile(0x057e25, "Deviously Cursed Loot.esp") as Armor ; Rubber Gloves with D-links
         If ((npcTracker.GetAliases()[index] as DDNF_NpcTracker_NPC).QuickEquipDevices(devices, 1, true) == 0) ; e.g. when wearing other gloves
             npc.AddItem(devices[0], aiCount=1, abSilent=true)
         EndIf
         Return true
     EndIf
+    Return false
 EndFunction

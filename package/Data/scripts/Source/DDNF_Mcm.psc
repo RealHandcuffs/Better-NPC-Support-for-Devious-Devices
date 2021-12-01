@@ -20,12 +20,14 @@ Int Property OptionClearCachedDataOnMenuClose Auto
 
 Int Property OptionEnablePapyrusLogging Auto
 Int Property OptionCursorActor Auto
+Int Property OptionPackage Auto
 Int Property OptionTrackingId Auto
 Int Property OptionNumberOfDevices Auto
 Int Property OptionFixupOnMenuClose Auto
 Int Property OptionEscapeOnMenuClose Auto
 
 String[] _npc
+String[] _package
 String[] _deviceNames
 String[] _npcStates
 
@@ -59,7 +61,7 @@ Event OnPageReset(string page)
         flagsEscapeSystem = OPTION_FLAG_DISABLED
     EndIf
     OptionCurrentFollowerStruggleFrequency = AddMenuOption("Followers: Frequency", ToStruggleFrequencyString(MainQuest.NpcTracker.CurrentFollowerStruggleFrequency), a_flags = flagsEscapeSystem)
-    OptionNotifyPlayerOfCurrentFollowerStruggle = AddToggleOption("Followers: Show notifications", MainQuest.NpcTracker.NotifyPlayerOfCurrentFollowerStruggle, a_flags = flagsEscapeSystem)
+    OptionNotifyPlayerOfCurrentFollowerStruggle = AddMenuOption("Followers: Notifications", ToNotificationString(MainQuest.NpcTracker.NotifyPlayerOfCurrentFollowerStruggle, MainQuest.NpcTracker.OnlyDisplayFinalSummaryMessage), a_flags = flagsEscapeSystem)
     OptionOtherNpcStruggleFrequency = AddMenuOption("Other NPCs: Frequency", ToStruggleFrequencyString(MainQuest.NpcTracker.OtherNpcStruggleFrequency), a_flags = flagsEscapeSystem)
 
     SetCursorPosition(1)
@@ -72,12 +74,20 @@ Event OnPageReset(string page)
     OptionEnablePapyrusLogging = AddToggleOption("Enable payprus logging", MainQuest.NpcTracker.EnablePapyrusLogging)
     Actor cursorActor = Game.GetCurrentCrosshairRef() as Actor
     If (cursorActor != None)
-        OptionCursorActor = AddMenuOption("NPC under crosshair", DDNF_NpcTracker_NPC.GetFormIdAsString(cursorActor))
-        _npc = new String[1]
-        _npc[0] = cursorActor.GetDisplayName()
+        OptionCursorActor = AddMenuOption("NPC under crosshair", DDNF_Game.FormIdAsString(cursorActor))
+        _npc = new String[3]
+        _npc[0] = "Name: " + cursorActor.GetDisplayName()
+        String cursorActorModName = DDNF_Game.GetModName(cursorActor)
+        If (cursorActorModName == "")
+            cursorActorModName = "(generated reference)"
+        EndIf
+        _npc[1] = "Mod: " + cursorActorModName
+        _npc[2] = "Is current follower: " + DDNF_NpcTracker_NPC.IsCurrentFollower(cursorActor, DDNF_NpcTracker.Get())
         Package cursorActorPackage = cursorActor.GetCurrentPackage()
         If (cursorActorPackage != None)
-            AddTextOption("  Current package", DDNF_NpcTracker_NPC.GetFormIdAsString(cursorActorPackage))
+            OptionPackage = AddMenuOption("  Current package", DDNF_Game.FormIdAsString(cursorActorPackage))
+            _package = new string[1]
+            _package[0] = "Mod: " + DDNF_Game.GetModName(cursorActorPackage)
         EndIf
         DDNF_ExternalApi api = DDNF_ExternalApi.Get()
         Int trackingId = api.GetTrackingId(cursorActor)
@@ -209,10 +219,12 @@ Event OnOptionDefault(Int option)
             Debug.Trace("[DDNF] MCM: Set current follower struggle frequency to 2.")
         EndIf
     ElseIf (option == OptionNotifyPlayerOfCurrentFollowerStruggle)
-        If (!MainQuest.NpcTracker.NotifyPlayerOfCurrentFollowerStruggle)
+        If (!MainQuest.NpcTracker.NotifyPlayerOfCurrentFollowerStruggle || MainQuest.NpcTracker.OnlyDisplayFinalSummaryMessage)
             MainQuest.NpcTracker.NotifyPlayerOfCurrentFollowerStruggle = true
-            SetToggleOptionValue(OptionNotifyPlayerOfCurrentFollowerStruggle, true)
-            Debug.Trace("[DDNF] MCM: Enabled notification for current follower struggling.")
+            MainQuest.NpcTracker.OnlyDisplayFinalSummaryMessage = true
+            String notificationString = ToNotificationString(true, false)
+            SetMenuOptionValue(OptionNotifyPlayerOfCurrentFollowerStruggle, notificationString)
+            Debug.Trace("[DDNF] MCM: Set notifications for current follower struggling to " + notificationString + ".")
         EndIf
     ElseIf (option == OptionOtherNpcStruggleFrequency)
         If (MainQuest.NpcTracker.OtherNpcStruggleFrequency != 0)
@@ -292,14 +304,6 @@ Event OnOptionSelect(Int option)
         Else
             Debug.Trace("[DDNF] MCM: Disabled escape system.")
         EndIf
-    ElseIf (option == OptionNotifyPlayerOfCurrentFollowerStruggle)
-        MainQuest.NpcTracker.NotifyPlayerOfCurrentFollowerStruggle = !MainQuest.NpcTracker.NotifyPlayerOfCurrentFollowerStruggle
-        SetToggleOptionValue(OptionNotifyPlayerOfCurrentFollowerStruggle, MainQuest.NpcTracker.NotifyPlayerOfCurrentFollowerStruggle)
-        If (MainQuest.NpcTracker.NotifyPlayerOfCurrentFollowerStruggle)
-            Debug.Trace("[DDNF] MCM: Enabled notification for current follower struggling.")
-        Else
-            Debug.Trace("[DDNF] MCM: Disabled notification for current follower struggling.")
-        EndIf
     ElseIf (option == OptionEnablePapyrusLogging)
         MainQuest.NpcTracker.EnablePapyrusLogging = !MainQuest.NpcTracker.EnablePapyrusLogging
         SetToggleOptionValue(OptionEnablePapyrusLogging, MainQuest.NpcTracker.EnablePapyrusLogging)
@@ -374,11 +378,20 @@ Event OnOptionMenuOpen(Int option)
     If (option == OptionCurrentFollowerStruggleFrequency)
         SetMenuDialogOptions(GetStruggleFrequencyMenuOptions(6))
         SetMenuDialogDefaultIndex(3)
+    ElseIf (option == OptionNotifyPlayerOfCurrentFollowerStruggle)
+        String[] notificationOptions = new String[3]
+        notificationOptions[0] = "No notifications."
+        notificationOptions[1] = "Final summary only."
+        notificationOptions[2] = "Detailed notifications."
+        SetMenuDialogDefaultIndex(1)
+        SetMenuDialogOptions(notificationOptions)
     ElseIf (option == OptionOtherNpcStruggleFrequency)
         SetMenuDialogOptions(GetStruggleFrequencyMenuOptions(6))
         SetMenuDialogDefaultIndex(0)
     ElseIf (option == OptionCursorActor)
         SetMenuDialogOptions(_npc)
+    ElseIf (option == OptionPackage)
+        SetMenuDialogOptions(_package)
     ElseIf (option == OptionTrackingId)
         SetMenuDialogOptions(_npcStates)
     ElseIf (option == OptionNumberOfDevices)
@@ -394,8 +407,18 @@ Event OnOptionMenuAccept(Int option, Int index)
             SetMenuOptionValue(OptionCurrentFollowerStruggleFrequency, ToStruggleFrequencyString(index))
             Debug.Trace("[DDNF] MCM: Set current follower struggle frequency to " + index + ".")
         EndIf
-    ElseIf(index >= 0 && option == OptionOtherNpcStruggleFrequency)
-        If (MainQuest.NpcTracker.OtherNpcStruggleFrequency != index)
+    ElseIf (option == OptionNotifyPlayerOfCurrentFollowerStruggle)
+        Bool notifyPlayer = index > 0
+        Bool onlySummary = index == 1
+        If (index >= 0 && notifyPlayer != MainQuest.NpcTracker.NotifyPlayerOfCurrentFollowerStruggle || onlySummary != MainQuest.NpcTracker.OnlyDisplayFinalSummaryMessage)
+            MainQuest.NpcTracker.NotifyPlayerOfCurrentFollowerStruggle = notifyPlayer
+            MainQuest.NpcTracker.OnlyDisplayFinalSummaryMessage = onlySummary
+            String notificationString = ToNotificationString(notifyPlayer, onlySummary)
+            SetMenuOptionValue(OptionNotifyPlayerOfCurrentFollowerStruggle, notificationString)
+            Debug.Trace("[DDNF] MCM: Set notifications for current follower struggling to " + notificationString + ".")
+        EndIf
+    ElseIf (option == OptionOtherNpcStruggleFrequency)
+        If (index >= 0 && MainQuest.NpcTracker.OtherNpcStruggleFrequency != index)
             MainQuest.NpcTracker.OtherNpcStruggleFrequency = index
             SetMenuOptionValue(OptionOtherNpcStruggleFrequency, ToStruggleFrequencyString(index))
             Debug.Trace("[DDNF] MCM: Set other npc struggle frequency to " + index + ".")
@@ -412,7 +435,7 @@ Event OnUpdate()
             RegisterForSingleUpdate(0.016)
         EndIf
         If (MainQuest.NpcTracker.EnablePapyrusLogging)
-            Debug.Trace("[DDNF] MCM: Fixup-on-close for " + DDNF_NpcTracker_NPC.GetFormIdAsString(fixupActor) + " " + fixupActor.GetDisplayName() + ".")
+            Debug.Trace("[DDNF] MCM: Fixup-on-close for " + DDNF_Game.FormIdAsString(fixupActor) + " " + fixupActor.GetDisplayName() + ".")
         EndIf
         MainQuest.NpcTracker.QueueForFixup(fixupActor)
         Return
@@ -432,7 +455,7 @@ Event OnUpdate()
         Actor escapeActor = _escapeOnMenuClose
         _escapeOnMenuClose = None
         If (MainQuest.NpcTracker.EnablePapyrusLogging)
-            Debug.Trace("[DDNF] MCM: Escape-on-close for " + DDNF_NpcTracker_NPC.GetFormIdAsString(escapeActor) + " " + escapeActor.GetDisplayName() + ".")
+            Debug.Trace("[DDNF] MCM: Escape-on-close for " + DDNF_Game.FormIdAsString(escapeActor) + " " + escapeActor.GetDisplayName() + ".")
         EndIf
         DDNF_ExternalApi api = DDNF_ExternalApi.Get()
         Int trackingId = api.GetOrCreateTrackingId(escapeActor)
@@ -460,4 +483,15 @@ String[] Function GetStruggleFrequencyMenuOptions(Int maxHours) Global
         index += 1
     EndWhile
     Return options
+EndFunction
+
+
+String Function ToNotificationString(Bool notifyPlayer, Bool summaryOnly) Global
+    If (notifyPlayer)
+        If (summaryOnly)
+            Return "summary only"
+        EndIf
+        Return "detailed"
+    EndIf
+    Return "(none)"
 EndFunction

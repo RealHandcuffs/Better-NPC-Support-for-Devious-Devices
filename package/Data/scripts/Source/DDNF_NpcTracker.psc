@@ -13,12 +13,13 @@ Faction Property Helpless Auto
 Faction Property UnarmedCombatants Auto
 FormList Property WeaponDisplayArmors Auto
 Keyword Property TrackingKeyword Auto
+Message Property ManipulatePanelGagInstead Auto
+Package Property FollowerPackageTemplate Auto
 Package Property Sandbox Auto
 Package Property BoundCombatNPCSandbox Auto
 Package Property BoundNPCSandbox Auto
 Weapon Property DummyWeapon Auto
 zadLibs Property DDLibs Auto
-Message Property ManipulatePanelGagInstead Auto
 
 Bool Property UseBoundCombat Auto
 Bool Property EnablePapyrusLogging = False Auto Conditional
@@ -27,15 +28,19 @@ Bool Property AllowManipulationOfDevices = True Auto
 Bool Property EscapeSystemEnabled = False Auto
 Int Property CurrentFollowerStruggleFrequency = 2 Auto ; 0 disables
 Bool Property NotifyPlayerOfCurrentFollowerStruggle = True Auto
+Bool Property OnlyDisplayFinalSummaryMessage = True Auto
 Int Property OtherNpcStruggleFrequency = 0 Auto ; 0 disables
 
 Float Property MaxFixupsPerThreeSeconds = 3.0 Auto
 
+Int Property DeviousDevicesIntegrationModId Auto
+Int Property DawnguardModId Auto
+Int Property DeviouslyCursedLootModId Auto
+Int Property DeviousContraptionsModId Auto
+
 Alias[] _cachedAliases ; performance optimization
 Form[] _cachedNpcs ; performance optimization
 Int _attemptedFixupsInPeriod
-Armor[] _dcurSpecialHandlingDevices ; for soft dependency to dcur
-Quest _zadcQuest ; for soft dependency to contraptions
 
 
 DDNF_NpcTracker Function Get() Global
@@ -88,12 +93,10 @@ Function HandleGameLoaded(Bool upgrade)
     EndIf
     ; refresh soft dependencies
     RefreshWeaponDisplayArmors()
-    If (Game.GetFormFromFile(0x024495, "Deviously Cursed Loot.esp") == None) ; dcur_mainlib
-        _dcurSpecialHandlingDevices = new Armor[1]
-    Else
-        _dcurSpecialHandlingDevices = DDNF_DcurShim.GetSpecialHandlingDevices()
-    EndIf
-    _zadcQuest = Game.GetFormFromFile(0x0022FD, "Devious Devices - Contraptions.esm") as Quest
+    DeviousDevicesIntegrationModId = Game.GetModByName("Devious Devices - Integration.esm")
+    DawnguardModId = Game.GetModByName("Dawnguard.esm")
+    DeviouslyCursedLootModId = Game.GetModByName("Deviously Cursed Loot.esp")
+    DeviousContraptionsModId = Game.GetModByName("Devious Devices - Contraptions.esm")
     ; notify all alias scripts
     Int index = 0
     Alias[] aliases = GetAliases()
@@ -252,14 +255,14 @@ Function HandleDeviceEquipped(Actor akActor, Armor inventoryDevice, Bool checkFo
             ; it's not equipped, equip it, but first recheck if inventory device has been removed
             If (akActor.GetItemCount(inventoryDevice) > 0)
                 If (EnablePapyrusLogging)
-                    Debug.Trace("[DDNF] Bug workaround: Equipping " + DDNF_NpcTracker_NPC.GetFormIdAsString(inventoryDevice) + " " + inventoryDevice.GetName() + " on " + DDNF_NpcTracker_NPC.GetFormIdAsString(akActor) + " " + akActor.GetDisplayName() + ".")
+                    Debug.Trace("[DDNF] Bug workaround: Equipping " + DDNF_Game.FormIdAsString(inventoryDevice) + " " + inventoryDevice.GetName() + " on " + DDNF_Game.FormIdAsString(akActor) + " " + akActor.GetDisplayName() + ".")
                 EndIf
                 ; sometimes items become "corrupt" and the game will lose the script
                 ; dropping the item may or may not help
                 ObjectReference item = akActor.DropObject(inventoryDevice)
                 If ((item as zadEquipScript) == None)
                     If (EnablePapyrusLogging)
-                        Debug.Trace("[DDNF] Replacing corrupt device " + DDNF_NpcTracker_NPC.GetFormIdAsString(item) + ".")
+                        Debug.Trace("[DDNF] Replacing corrupt device " + DDNF_Game.FormIdAsString(item) + ".")
                     EndIf
                     item.DisableNoWait()
                     item.Delete()
@@ -281,13 +284,9 @@ Function HandleDeviceSelectedInContainerMenu(Actor npc, Armor inventoryDevice, A
     If (!AllowManipulationOfDevices || inventoryDevice.HasKeyword(ddLibs.zad_BlockGeneric) || inventoryDevice.HasKeyword(ddLibs.zad_QuestItem))
         Return ; do not manipulate quest devices
     EndIf
-    If (_dcurSpecialHandlingDevices[0] != None)
-        Int dcurDeviceIndex = _dcurSpecialHandlingDevices.Find(inventoryDevice)
-        If (dcurDeviceIndex >= 0)
-            ; handle device using the cursed loot shim
-            DDNF_DcurShim.HandleDeviceSelectedInContainerMenu(Self, npc, inventoryDevice, renderedDevice, _dcurSpecialHandlingDevices, dcurDeviceIndex)
-            Return
-        EndIf
+    Int inventoryDeviceModId = DDNF_Game.GetModId(inventoryDevice.GetFormID())
+    If (inventoryDeviceModId == DeviouslyCursedLootModId && DDNF_DcurShim.HandleDeviceSelectedInContainerMenu(Self, npc, inventoryDevice, renderedDevice))
+        Return
     EndIf
     If (renderedDevice.HasKeyword(ddLibs.zad_DeviousGagPanel))
         ; allow player to remove/insert panel gag plug
@@ -331,12 +330,9 @@ EndFunction
 ; Unequip a device from an NPC, with correct handling of soft dependencies.
 ;
 Bool Function UnlockDevice(Actor npc, Armor inventoryDevice, Armor renderedDevice, Keyword deviceKeyword)
-    If (_dcurSpecialHandlingDevices[0] != None)
-        Int dcurDeviceIndex = _dcurSpecialHandlingDevices.Find(inventoryDevice)
-        If (dcurDeviceIndex >= 0)
-            ; handle device using the cursed loot shim
-            Return DDNF_DcurShim.UnlockDevice(Self, npc, inventoryDevice, renderedDevice, deviceKeyword, _dcurSpecialHandlingDevices, dcurDeviceIndex)
-        EndIf
+    Int inventoryDeviceModId = DDNF_Game.GetModId(inventoryDevice.GetFormID())
+    If (inventoryDeviceModId == DeviouslyCursedLootModId && DDNF_DcurShim.UnlockDevice(Self, npc, inventoryDevice, renderedDevice, deviceKeyword))
+        Return true
     EndIf
     Return DDLibs.UnlockDevice(npc, inventoryDevice, renderedDevice, deviceKeyword, false, true)
 EndFunction
@@ -346,10 +342,10 @@ EndFunction
 ; Check if a NPC is in a contraption (soft dependency).
 ;
 ObjectReference Function TryGetCurrentContraption(Actor npc)
-    If (_zadcQuest == None)
+    If (DeviousContraptionsModId == 255)
         Return None
     EndIf
-    Return DDNF_ZadcShim.TryGetCurrentContraption(_zadcQuest, npc)
+    Return DDNF_ZadcShim.TryGetCurrentContraption(npc)
 EndFunction
 
 
@@ -420,8 +416,8 @@ Function LinkInventoryDeviceAndRenderedDevice(Armor inventoryDevice, Armor rende
     StorageUtil.SetFormValue(inventoryDevice, "ddnf_r", renderedDevice)
     StorageUtil.SetFormValue(renderedDevice, "ddnf_i", inventoryDevice)
     If (enablePapyrusLogging)
-        String inventoryFormId = DDNF_NpcTracker_NPC.GetFormIdAsString(inventoryDevice)
-        String renderedFormId = DDNF_NpcTracker_NPC.GetFormIdAsString(renderedDevice)
+        String inventoryFormId = DDNF_Game.FormIdAsString(inventoryDevice)
+        String renderedFormId = DDNF_Game.FormIdAsString(renderedDevice)
         Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + inventoryFormId + ", ddnf_r, " + renderedFormId + ")")
         Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + renderedFormId + ", ddnf_i, " + inventoryFormId + ")")
     EndIf

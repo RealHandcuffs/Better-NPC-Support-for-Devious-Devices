@@ -129,3 +129,8 @@ Version 0.5 beta 5
 - Tweak timing and messages of escape system
 - Fix handling of quest devices by escape system (will now struggle but always fail)
 - More MCM improvements
+
+Version 0.5 beta 6
+- Change MCM settings for player notifications to three states: None, summary only, detailed
+- Be much more restrictive about which NPCs are allowed to escape devices if they are not current follower
+- Various fixes, tweaks and internal changes to escape system and handling of devices

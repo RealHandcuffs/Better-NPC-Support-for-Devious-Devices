@@ -3,6 +3,10 @@
 ;
 Scriptname DDNF_DLC1Shim
 
+BOol Function IsSerana(Actor maybeSerana) Global ; maybeSerana must be actor defined in Dawnguard.esm
+     Return DDNF_Game.GetModInternalFormId(maybeSerana.GetFormID()) == 0x002B74
+EndFunction
+
 Function KickSeranaFromSandboxPackage(Actor serana) Global
     Form mentalModel = Game.GetFormFromFile(0x002B6E, "Dawnguard.esm") ; DLC1NPCMentalModel
     DLC1_NPCMentalModelScript mm = mentalModel as DLC1_NPCMentalModelScript
