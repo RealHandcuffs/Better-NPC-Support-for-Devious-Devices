@@ -7,10 +7,13 @@ DDNF_MainQuest Property MainQuest Auto
 
 Int Property OptionScannerFrequency Auto
 Int Property OptionMaxFixupsPerThreeSeconds Auto
+Int Property OptionFixInconsistentDevices Auto
 Int Property OptionRestoreOriginalOutfit Auto
 Int Property OptionAllowManipulationOfDevices Auto
 
 Int Property OptionEnableEscapeSystem Auto
+Int Property OptionAbortStrugglingAfterFailedDevices Auto
+Int Property OptionStruggleIfPointless Auto
 Int Property OptionCurrentFollowerStruggleFrequency Auto
 Int Property OptionNotifyPlayerOfCurrentFollowerStruggle Auto
 Int Property OptionOtherNpcStruggleFrequency Auto
@@ -19,6 +22,7 @@ Int Property OptionNpcProcessingEnabled Auto
 Int Property OptionClearCachedDataOnMenuClose Auto
 
 Int Property OptionEnablePapyrusLogging Auto
+Int Property OptionShowNpcInfo Auto
 Int Property OptionCursorActor Auto
 Int Property OptionPackage Auto
 Int Property OptionTrackingId Auto
@@ -26,11 +30,16 @@ Int Property OptionNumberOfDevices Auto
 Int Property OptionFixupOnMenuClose Auto
 Int Property OptionEscapeOnMenuClose Auto
 
+Bool Property ShowNpcInfo = false Auto
+
 String[] _npc
 String[] _package
+Bool _hasTrackingId
 String[] _deviceNames
 String[] _npcStates
 
+Bool _disableOnMenuClose
+Bool _enableOnMenuClose
 Actor _fixupOnMenuClose
 Bool _clearCacheOnMenuClose
 Actor _escapeOnMenuClose
@@ -47,15 +56,27 @@ Event OnPageReset(string page)
     If (!isRunning)
         flags = OPTION_FLAG_DISABLED
     EndIf
+
     AddHeaderOption("NPC Processing", a_flags = flags)
     OptionScannerFrequency = AddSliderOption("Scan for NPCs every", MainQuest.SecondsBetweenScans, a_formatString = "{0} seconds", a_flags = flags)
     OptionMaxFixupsPerThreeSeconds = AddSliderOption("NPCs to process/3 seconds", MainQuest.NpcTracker.MaxFixupsPerThreeSeconds, a_flags = flags)
+    OptionFixInconsistentDevices = AddToggleOption("Fix current follower devices", MainQuest.NpcTracker.FixInconsistentDevices, a_flags = flags)
     OptionRestoreOriginalOutfit = AddToggleOption("Restore original outfits", MainQuest.NpcTracker.RestoreOriginalOutfit, a_flags = flags)
+
+    AddHeaderOption("Container Menu Interactions")
     OptionAllowManipulationOfDevices = AddToggleOption("Allow manipulation of devices", MainQuest.NpcTracker.AllowManipulationOfDevices, a_flags = flags)
-    
+
+    AddHeaderOption("Maintenance")
+    OptionNpcProcessingEnabled = AddToggleOption("Process NPCs (unchecking disables mod)", MainQuest.NpcTracker.IsRunning())
+    OptionClearCachedDataOnMenuClose = AddToggleOption("Clear cached data on menu close", false)
+
+    SetCursorPosition(1)
+
     AddHeaderOption("Escape System", a_flags = flags)
     Bool isEscapeSystemEnabed = MainQuest.NpcTracker.EscapeSystemEnabled
     OptionEnableEscapeSystem = AddToggleOption("Allow NPCs to struggle", MainQuest.NpcTracker.EscapeSystemEnabled, a_flags = flags)
+    OptionAbortStrugglingAfterFailedDevices = AddMenuOption("Abort struggling after", ToAbortStrugglingString(MainQuest.NpcTracker.AbortStrugglingAfterFailedDevices, true), a_flags = flags)
+    OptionStruggleIfPointless = AddToggleOption("Struggle even if pointless", MainQuest.NpcTracker.StruggleIfPointless, a_flags = flags)
     Int flagsEscapeSystem = flags
     If (!isEscapeSystemEnabed)
         flagsEscapeSystem = OPTION_FLAG_DISABLED
@@ -64,17 +85,13 @@ Event OnPageReset(string page)
     OptionNotifyPlayerOfCurrentFollowerStruggle = AddMenuOption("Followers: Notifications", ToNotificationString(MainQuest.NpcTracker.NotifyPlayerOfCurrentFollowerStruggle, MainQuest.NpcTracker.OnlyDisplayFinalSummaryMessage), a_flags = flagsEscapeSystem)
     OptionOtherNpcStruggleFrequency = AddMenuOption("Other NPCs: Frequency", ToStruggleFrequencyString(MainQuest.NpcTracker.OtherNpcStruggleFrequency), a_flags = flagsEscapeSystem)
 
-    SetCursorPosition(1)
-
-    AddHeaderOption("Maintenance")
-    OptionNpcProcessingEnabled = AddToggleOption("Process NPCs (unchecking disables mod)", MainQuest.NpcTracker.IsRunning())
-    OptionClearCachedDataOnMenuClose = AddToggleOption("Clear cached data on menu close", false)
-
     AddHeaderOption("Debug Settings")
     OptionEnablePapyrusLogging = AddToggleOption("Enable payprus logging", MainQuest.NpcTracker.EnablePapyrusLogging)
     Actor cursorActor = Game.GetCurrentCrosshairRef() as Actor
     If (cursorActor != None)
-        OptionCursorActor = AddMenuOption("NPC under crosshair", DDNF_Game.FormIdAsString(cursorActor))
+        ShowNpcInfo = false
+        OptionShowNpcInfo = AddToggleOption("Analyze NPC under crosshair", false)
+        OptionCursorActor = AddMenuOption("NPC under crosshair", DDNF_Game.FormIdAsString(cursorActor), a_flags = OPTION_FLAG_HIDDEN)
         _npc = new String[3]
         _npc[0] = "Name: " + cursorActor.GetDisplayName()
         String cursorActorModName = DDNF_Game.GetModName(cursorActor)
@@ -85,14 +102,15 @@ Event OnPageReset(string page)
         _npc[2] = "Is current follower: " + DDNF_NpcTracker_NPC.IsCurrentFollower(cursorActor, DDNF_NpcTracker.Get())
         Package cursorActorPackage = cursorActor.GetCurrentPackage()
         If (cursorActorPackage != None)
-            OptionPackage = AddMenuOption("  Current package", DDNF_Game.FormIdAsString(cursorActorPackage))
+            OptionPackage = AddMenuOption("  Current package", DDNF_Game.FormIdAsString(cursorActorPackage), a_flags = OPTION_FLAG_HIDDEN)
             _package = new string[1]
             _package[0] = "Mod: " + DDNF_Game.GetModName(cursorActorPackage)
         EndIf
         DDNF_ExternalApi api = DDNF_ExternalApi.Get()
         Int trackingId = api.GetTrackingId(cursorActor)
         If (trackingId >= 0)
-            OptionTrackingId = AddMenuOption("  Tracking status", "id = " + trackingId)
+            _hasTrackingId = true
+            OptionTrackingId = AddMenuOption("  Tracking status", "id = " + trackingId, a_flags = OPTION_FLAG_HIDDEN)
             String[] statesArray = new String[6]
             Int statesCount = 0
             If (api.IsBound(trackingId))
@@ -128,7 +146,7 @@ Event OnPageReset(string page)
             Armor[] devices = new Armor[32]
             Int deviceCount = api.GetEquippedDevices(trackingId, devices)
             If (deviceCount == 0)
-                OptionNumberOfDevices = AddTextOption("  Devices ", "0")
+                OptionNumberOfDevices = AddTextOption("  Devices ", "0", a_flags = OPTION_FLAG_HIDDEN)
             Else
                 If (_deviceNames.Length != deviceCount)
                     _deviceNames = Utility.CreateStringArray(deviceCount)
@@ -138,13 +156,14 @@ Event OnPageReset(string page)
                     _deviceNames[deviceIndex] = devices[deviceIndex].GetName()
                     deviceIndex += 1
                 EndWhile
-                OptionNumberOfDevices = AddMenuOption("  Devices ", "" + deviceCount)
+                OptionNumberOfDevices = AddMenuOption("  Devices ", "" + deviceCount, a_flags = OPTION_FLAG_HIDDEN)
             EndIf
         Else
-            OptionTrackingId = AddTextOption("  Tracking ID", "(not tracked)")
+            _hasTrackingId = false
+            OptionTrackingId = AddTextOption("  Tracking ID", "(not tracked)", a_flags = OPTION_FLAG_HIDDEN)
         EndIf
-        OptionFixupOnMenuClose = AddToggleOption("  Queue fixup on menu close", false)
-        OptionEscapeOnMenuClose = AddToggleOption("  Queue escape attempt on menu close", false)
+        OptionFixupOnMenuClose = AddToggleOption("  Queue fixup on menu close", false, a_flags = OPTION_FLAG_HIDDEN)
+        OptionEscapeOnMenuClose = AddToggleOption("  Queue escape attempt on menu close", false, a_flags = OPTION_FLAG_HIDDEN)
     EndIf
     
     _fixupOnMenuClose = None
@@ -156,11 +175,11 @@ EndEvent
 Event OnOptionDefault(Int option)
     If (option == OptionNpcProcessingEnabled)
         If (!MainQuest.NpcTracker.IsRunning())
-            MainQuest.NpcTracker.Reset()
-            MainQuest.NpcTracker.Start()
+            RegisterForSingleUpdate(0.016)
             SetToggleOptionValue(OptionNpcProcessingEnabled, true)
             SetOptionFlags(OptionScannerFrequency, OPTION_FLAG_NONE, true)
             SetOptionFlags(OptionMaxFixupsPerThreeSeconds, OPTION_FLAG_NONE, false)
+            SetOptionFlags(OptionFixInconsistentDevices, OPTION_FLAG_NONE, false)
             SetOptionFlags(OptionRestoreOriginalOutfit, OPTION_FLAG_NONE, false)
             SetOptionFlags(OptionAllowManipulationOfDevices, OPTION_FLAG_NONE, false)
             SetOptionFlags(OptionEnableEscapeSystem, OPTION_FLAG_NONE, false)
@@ -168,12 +187,11 @@ Event OnOptionDefault(Int option)
             If (!MainQuest.NpcTracker.EscapeSystemEnabled)
                 flagsEscapeSystem = OPTION_FLAG_DISABLED
             EndIf
+            SetOptionFlags(OptionAbortStrugglingAfterFailedDevices, OPTION_FLAG_NONE, false)
+            SetOptionFlags(OptionStruggleIfPointless, OPTION_FLAG_NONE, false)
             SetOptionFlags(OptionCurrentFollowerStruggleFrequency, flagsEscapeSystem, false)
             SetOptionFlags(OptionNotifyPlayerOfCurrentFollowerStruggle, flagsEscapeSystem, false)
             SetOptionFlags(OptionOtherNpcStruggleFrequency, flagsEscapeSystem, false)
-            If (MainQuest.NpcTracker.EnablePapyrusLogging)
-                Debug.Trace("[DDNF] MCM: Enabled NPC processing.")
-            EndIf
         EndIf
     ElseIf (option == OptionScannerFrequency)
         If (MainQuest.SecondsBetweenScans != 8)
@@ -191,6 +209,12 @@ Event OnOptionDefault(Int option)
                 Debug.Trace("[DDNF] MCM: Set max fixups/3 seconds to 3.")
             EndIf
         EndIf
+    ElseIf (option == OptionFixInconsistentDevices)
+        If (!MainQuest.NpcTracker.FixInconsistentDevices)
+            MainQuest.NpcTracker.FixInconsistentDevices = true
+            SetToggleOptionValue(OptionFixInconsistentDevices, true)
+            Debug.Trace("[DDNF] MCM: Enabled fixing inconsistent devices.")
+        EndIf
     ElseIf (option == OptionRestoreOriginalOutfit)
         If (MainQuest.NpcTracker.RestoreOriginalOutfit)
             MainQuest.NpcTracker.RestoreOriginalOutfit = false
@@ -207,10 +231,24 @@ Event OnOptionDefault(Int option)
         If (MainQuest.NpcTracker.EscapeSystemEnabled)
             MainQuest.NpcTracker.EscapeSystemEnabled = false
             SetToggleOptionValue(OptionEnableEscapeSystem, false)
+            SetOptionFlags(OptionAbortStrugglingAfterFailedDevices, OPTION_FLAG_DISABLED, false)
+            SetOptionFlags(OptionStruggleIfPointless, OPTION_FLAG_DISABLED, false)
             SetOptionFlags(OptionCurrentFollowerStruggleFrequency, OPTION_FLAG_DISABLED, false)
             SetOptionFlags(OptionNotifyPlayerOfCurrentFollowerStruggle, OPTION_FLAG_DISABLED, false)
             SetOptionFlags(OptionOtherNpcStruggleFrequency, OPTION_FLAG_DISABLED, false)
             Debug.Trace("[DDNF] MCM: Disabled escape system.")
+        EndIf
+    ElseIf (option == OptionAbortStrugglingAfterFailedDevices)
+        If (MainQuest.NpcTracker.AbortStrugglingAfterFailedDevices != 3)
+            MainQuest.NpcTracker.AbortStrugglingAfterFailedDevices = 3
+            SetMenuOptionValue(OptionStruggleIfPointless, ToAbortStrugglingString(3, true))
+            Debug.Trace("[DDNF] MCM: Set abort struggling to 'abort after 3 failed devices'.")
+        EndIf
+    ElseIf (option == OptionStruggleIfPointless)
+        If (MainQuest.NpcTracker.StruggleIfPointless)
+            MainQuest.NpcTracker.StruggleIfPointless = false
+            SetToggleOptionValue(OptionStruggleIfPointless, false)
+            Debug.Trace("[DDNF] MCM: Disable struggling if pointless.")
         EndIf
     ElseIf (option == OptionCurrentFollowerStruggleFrequency)
         If (MainQuest.NpcTracker.CurrentFollowerStruggleFrequency != 2)
@@ -238,24 +276,42 @@ Event OnOptionDefault(Int option)
             SetToggleOptionValue(OptionEnablePapyrusLogging, false)
             Debug.Trace("[DDNF] MCM: Disabled Papyrus logging.")
         EndIf
+    ElseIf (option == OptionShowNpcInfo)
+        If (ShowNpcInfo)
+            ShowNpcInfo = false
+            SetToggleOptionValue(OptionShowNpcInfo, false)
+            SetOptionFlags(OptionCursorActor, OPTION_FLAG_HIDDEN)
+            SetOptionFlags(OptionPackage, OPTION_FLAG_HIDDEN)
+            SetOptionFlags(OptionTrackingId, OPTION_FLAG_HIDDEN)
+            If (_hasTrackingId)
+                SetOptionFlags(OptionNumberOfDevices, OPTION_FLAG_HIDDEN)
+            EndIf
+            SetOptionFlags(OptionFixupOnMenuClose, OPTION_FLAG_HIDDEN)
+            SetOptionFlags(OptionEscapeOnMenuClose, OPTION_FLAG_HIDDEN)
+        EndIf
     EndIf
 EndEvent
 
 
 Event OnOptionSelect(Int option)
     If (option == OptionNpcProcessingEnabled)
-        Bool isRunning = MainQuest.NpcTracker.IsRunning()
         Int flags = OPTION_FLAG_NONE
-        If (isRunning)
-            MainQuest.NpcTracker.Stop()
+        If (_enableOnMenuClose)
             flags = OPTION_FLAG_DISABLED
-        Else
-            MainQuest.NpcTracker.Reset()
-            MainQuest.NpcTracker.Start()
+            _enableOnMenuClose = false
+        ElseIf (_disableOnMenuClose)
+            _disableOnMenuClose = false
+        ElseIf (MainQuest.NpcTracker.IsRunning())
+            flags = OPTION_FLAG_DISABLED
+            _disableOnMenuClose = true
+       Else
+            _enableOnMenuClose = true
         EndIf
-        SetToggleOptionValue(OptionNpcProcessingEnabled, !isRunning)
+        RegisterForSingleUpdate(0.016)        
+        SetToggleOptionValue(OptionNpcProcessingEnabled, flags == OPTION_FLAG_NONE)
         SetOptionFlags(OptionScannerFrequency, flags, true)
         SetOptionFlags(OptionMaxFixupsPerThreeSeconds, flags, false)
+        SetOptionFlags(OptionFixInconsistentDevices, flags, false)
         SetOptionFlags(OptionRestoreOriginalOutfit, flags, false)
         SetOptionFlags(OptionAllowManipulationOfDevices, flags, false)
         SetOptionFlags(OptionEnableEscapeSystem, flags, false)
@@ -263,15 +319,18 @@ Event OnOptionSelect(Int option)
         If (!MainQuest.NpcTracker.EscapeSystemEnabled)
             flagsEscapeSystem = OPTION_FLAG_DISABLED
         EndIf
+        SetOptionFlags(OptionAbortStrugglingAfterFailedDevices, flagsEscapeSystem, false)
+        SetOptionFlags(OptionStruggleIfPointless, flagsEscapeSystem, false)
         SetOptionFlags(OptionCurrentFollowerStruggleFrequency, flagsEscapeSystem, false)
         SetOptionFlags(OptionNotifyPlayerOfCurrentFollowerStruggle, flagsEscapeSystem, false)
         SetOptionFlags(OptionOtherNpcStruggleFrequency, flagsEscapeSystem, false)
-        If (MainQuest.NpcTracker.EnablePapyrusLogging)
-            If (isRunning)
-                Debug.Trace("[DDNF] MCM: Disabled NPC processing.")
-            Else
-                Debug.Trace("[DDNF] MCM: Enabled NPC processing.")
-            EndIf
+    ElseIf (option == OptionFixInconsistentDevices)
+        MainQuest.NpcTracker.FixInconsistentDevices = !MainQuest.NpcTracker.FixInconsistentDevices
+        SetToggleOptionValue(OptionFixInconsistentDevices, MainQuest.NpcTracker.FixInconsistentDevices)
+        If (MainQuest.NpcTracker.FixInconsistentDevices)
+            Debug.Trace("[DDNF] MCM: Enabled fixing inconsistent devices.")
+        Else
+            Debug.Trace("[DDNF] MCM: Disabled fixing inconsistent devices.")
         EndIf
     ElseIf (option == OptionRestoreOriginalOutfit)
         MainQuest.NpcTracker.RestoreOriginalOutfit = !MainQuest.NpcTracker.RestoreOriginalOutfit
@@ -296,6 +355,8 @@ Event OnOptionSelect(Int option)
         If (!MainQuest.NpcTracker.EscapeSystemEnabled)
             flagsEscapeSystem = OPTION_FLAG_DISABLED
         EndIf
+        SetOptionFlags(OptionAbortStrugglingAfterFailedDevices, flagsEscapeSystem, false)
+        SetOptionFlags(OptionStruggleIfPointless, flagsEscapeSystem, false)
         SetOptionFlags(OptionCurrentFollowerStruggleFrequency, flagsEscapeSystem, false)
         SetOptionFlags(OptionNotifyPlayerOfCurrentFollowerStruggle, flagsEscapeSystem, false)
         SetOptionFlags(OptionOtherNpcStruggleFrequency, flagsEscapeSystem, false)
@@ -303,6 +364,14 @@ Event OnOptionSelect(Int option)
             Debug.Trace("[DDNF] MCM: Enabled escape system.")
         Else
             Debug.Trace("[DDNF] MCM: Disabled escape system.")
+        EndIf
+    ElseIf (option == OptionStruggleIfPointless)
+        MainQuest.NpcTracker.StruggleIfPointless = !MainQuest.NpcTracker.StruggleIfPointless
+        SetToggleOptionValue(OptionStruggleIfPointless, MainQuest.NpcTracker.StruggleIfPointless)
+        If (MainQuest.NpcTracker.StruggleIfPointless)
+            Debug.Trace("[DDNF] MCM: Enabled struggling if pointless.")
+        Else
+            Debug.Trace("[DDNF] MCM: Disabled struggling if pointless.")
         EndIf
     ElseIf (option == OptionEnablePapyrusLogging)
         MainQuest.NpcTracker.EnablePapyrusLogging = !MainQuest.NpcTracker.EnablePapyrusLogging
@@ -312,6 +381,21 @@ Event OnOptionSelect(Int option)
         Else
             Debug.Trace("[DDNF] MCM: Disabled Papyrus logging.")
         EndIf
+    ElseIf (option == OptionShowNpcInfo)
+        ShowNpcInfo = !ShowNpcInfo
+        SetToggleOptionValue(OptionShowNpcInfo, ShowNpcInfo)
+        Int flags = OPTION_FLAG_NONE
+        If (!ShowNpcInfo)
+            flags = OPTION_FLAG_HIDDEN
+        EndIf
+        SetOptionFlags(OptionCursorActor, flags)
+        SetOptionFlags(OptionPackage, flags)
+        SetOptionFlags(OptionTrackingId, flags)
+        If (_hasTrackingId)
+            SetOptionFlags(OptionNumberOfDevices, flags)
+        EndIf
+        SetOptionFlags(OptionFixupOnMenuClose, flags)
+        SetOptionFlags(OptionEscapeOnMenuClose, flags)
     ElseIf (option == OptionClearCachedDataOnMenuClose)
         _clearCacheOnMenuClose = !_clearCacheOnMenuClose
         SetToggleOptionValue(OptionClearCachedDataOnMenuClose, _clearCacheOnMenuClose)
@@ -375,19 +459,28 @@ EndEvent
 
 
 Event OnOptionMenuOpen(Int option)
-    If (option == OptionCurrentFollowerStruggleFrequency)
-        SetMenuDialogOptions(GetStruggleFrequencyMenuOptions(6))
-        SetMenuDialogDefaultIndex(3)
+    If (option == OptionAbortStrugglingAfterFailedDevices)
+        SetMenuDialogOptions(GetAbortStrugglingMenuOptions(6))
+        SetMenuDialogDefaultIndex(MainQuest.NpcTracker.AbortStrugglingAfterFailedDevices)
+    ElseIf (option == OptionCurrentFollowerStruggleFrequency)
+        SetMenuDialogOptions(GetStruggleFrequencyMenuOptions(8))
+        SetMenuDialogDefaultIndex(MainQuest.NpcTracker.CurrentFollowerStruggleFrequency)
     ElseIf (option == OptionNotifyPlayerOfCurrentFollowerStruggle)
         String[] notificationOptions = new String[3]
         notificationOptions[0] = "No notifications."
         notificationOptions[1] = "Final summary only."
         notificationOptions[2] = "Detailed notifications."
-        SetMenuDialogDefaultIndex(1)
+        If (!MainQuest.NpcTracker.NotifyPlayerOfCurrentFollowerStruggle)
+            SetMenuDialogDefaultIndex(0)
+        ElseIf (MainQuest.NpcTracker.OnlyDisplayFinalSummaryMessage)
+            SetMenuDialogDefaultIndex(1)
+        Else
+            SetMenuDialogDefaultIndex(2)
+        EndIf
         SetMenuDialogOptions(notificationOptions)
     ElseIf (option == OptionOtherNpcStruggleFrequency)
-        SetMenuDialogOptions(GetStruggleFrequencyMenuOptions(6))
-        SetMenuDialogDefaultIndex(0)
+        SetMenuDialogOptions(GetStruggleFrequencyMenuOptions(8))
+        SetMenuDialogDefaultIndex(MainQuest.NpcTracker.OtherNpcStruggleFrequency)
     ElseIf (option == OptionCursorActor)
         SetMenuDialogOptions(_npc)
     ElseIf (option == OptionPackage)
@@ -401,7 +494,17 @@ EndEvent
 
 
 Event OnOptionMenuAccept(Int option, Int index)
-    If (option == OptionCurrentFollowerStruggleFrequency)
+    If (option == OptionAbortStrugglingAfterFailedDevices)
+        If (index >= 0 && MainQuest.NpcTracker.AbortStrugglingAfterFailedDevices != index)
+            MainQuest.NpcTracker.AbortStrugglingAfterFailedDevices = index
+            SetMenuOptionValue(OptionAbortStrugglingAfterFailedDevices, ToAbortStrugglingString(index, true))
+            If (index == 0)
+                Debug.Trace("[DDNF] MCM: Set abort struggling to 'struggle against all devices'.")
+            Else
+                Debug.Trace("[DDNF] MCM: Set abort struggling to 'abort after " + index + " failed devices'.")
+            EndIf
+        EndIf
+    ElseIf (option == OptionCurrentFollowerStruggleFrequency)
         If (index >= 0 && MainQuest.NpcTracker.CurrentFollowerStruggleFrequency != index)
             MainQuest.NpcTracker.CurrentFollowerStruggleFrequency = index
             SetMenuOptionValue(OptionCurrentFollowerStruggleFrequency, ToStruggleFrequencyString(index))
@@ -428,6 +531,30 @@ EndEvent
 
 
 Event OnUpdate()
+    If (_disableOnMenuClose)
+        _disableOnMenuClose = false
+        If (_enableOnMenuClose)
+            _enableOnMenuClose = false
+        Else
+            MainQuest.NpcTracker.IsEnabled = false
+            MainQuest.NpcTracker.Clear(true)
+            MainQuest.NpcTracker.Stop()
+            Debug.Notification("[BNSfDD] Stopped processing of NPCs.")
+            If (MainQuest.NpcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] MCM: Disabled NPC processing.")
+            EndIf
+        EndIf
+    EndIf
+    If (_enableOnMenuClose)
+        _enableOnMenuClose = false
+        MainQuest.NpcTracker.Reset()
+        MainQuest.NpcTracker.Start()
+        MainQuest.NpcTracker.IsEnabled = true
+        Debug.Notification("[BNSfDD] Started processing of NPCs.")
+        If (MainQuest.NpcTracker.EnablePapyrusLogging)
+            Debug.Trace("[DDNF] MCM: Enabled NPC processing.")
+        EndIf
+    EndIf
     If (_fixupOnMenuClose != None)
         Actor fixupActor = _fixupOnMenuClose
         _fixupOnMenuClose = None
@@ -467,13 +594,36 @@ Event OnUpdate()
 EndEvent
 
 
+String Function ToAbortStrugglingString(Int value, Bool shortString) Global
+    If (value == 0)
+        If (shortString)
+            Return "(all devices)"
+        EndIf
+        Return "(always try to escape all devices)"
+    EndIf
+    If (shortString)
+        Return value + " failures"
+    EndIf
+    Return "" + value + " failed devices"
+EndFunction
+
+String[] Function GetAbortStrugglingMenuOptions(Int maxValue) Global
+    String[] options = Utility.CreateStringArray(maxValue + 1)
+    Int index = 0
+    While (index <= maxValue)
+        options[index] = ToAbortStrugglingString(index, false)
+        index += 1
+    EndWhile
+    Return options
+EndFunction
+
+
 String Function ToStruggleFrequencyString(Int value) Global
     If (value == 0)
         Return "(never)"
     EndIf
     Return value + " game hours"
 EndFunction
-
 
 String[] Function GetStruggleFrequencyMenuOptions(Int maxHours) Global
     String[] options = Utility.CreateStringArray(maxHours + 1)

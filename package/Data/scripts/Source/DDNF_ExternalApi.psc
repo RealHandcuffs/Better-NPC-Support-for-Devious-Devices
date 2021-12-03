@@ -146,7 +146,7 @@ Int Function GetEquippedDevices(Int trackingId, Armor[] outputArray, Keyword opt
                 Return count
             EndIf
             Form[] npcs = ((Self as Quest) as DDNF_NpcTracker).GetNpcs()
-            Return DDNF_NpcTracker_NPC.ScanForEquippedInventoryDevices(tracker.DDLibs, npcs[trackingId] as Actor, outputArray, optionalFilterKeyword)
+            Return DDNF_NpcTracker_NPC.ScanForInventoryDevices(tracker.DDLibs, npcs[trackingId] as Actor, outputArray, true, optionalFilterKeyword)
         EndIf
     EndIf
     Return 0

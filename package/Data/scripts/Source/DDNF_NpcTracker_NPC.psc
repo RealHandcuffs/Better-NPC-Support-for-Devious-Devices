@@ -27,7 +27,6 @@ Bool _escapeAttemptLock
 Float _lastFixupRealTime
 Float _lastEscapeAttemptGameTime
 Bool _attemptedEscapeAgainstRenderedDevices
-Bool _noChanceInLastEscapeAttempt
 
 
 Function HandleGameLoaded(Bool upgrade)
@@ -100,7 +99,6 @@ Function ForceRefTo(ObjectReference akNewRef) ; override
         EndIf
         _lastEscapeAttemptGameTime = -99 ; special value
         _attemptedEscapeAgainstRenderedDevices = false
-        _noChanceInLastEscapeAttempt = false
     EndIf
 EndFunction
 
@@ -134,7 +132,6 @@ Function Clear() ; override
             EndIf
             Int dummyWeaponCount = npc.GetItemCount(npcTracker.DummyWeapon)
             If (dummyWeaponCount > 0)
-                npc.UnequipItemEx(npcTracker.DummyWeapon)
                 npc.RemoveItem(npcTracker.DummyWeapon, aiCount=dummyWeaponCount, abSilent=true)
             EndIf
             ; no reason to clear the state, it will be set correctly in ForceRefTo() or in the Fixup following it
@@ -312,22 +309,24 @@ EndEvent
 
 
 Event OnPackageStart(Package akNewPackage)
-    DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
-    If (akNewPackage != npcTracker.BoundCombatNPCSandbox && akNewPackage != npcTracker.BoundNPCSandbox)
-        Package template = akNewPackage.GetTemplate()
-        If (template == npcTracker.Sandbox)
-            Actor npc = GetReference() as Actor
-            If (npc != None && IsParentCellAttached(npc) && (npc.WornHasKeyword(npcTracker.DDLibs.zad_DeviousHeavyBondage) || npc.WornHasKeyword(npcTracker.DDLibs.zad_DeviousHobbleSkirt)))
-                ; bound npc switched to sandbox package (other than DD sandbox packages), check if we can kick them out of it again
-                If (npcTracker.EnablePapyrusLogging)
-                    Debug.Trace("[DDNF] Trying to kick " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " out of sandboxing package.")
-                EndIf
-                If (DDNF_Game.GetModName(npc) == "Dawnguard.esm" && DDNF_DLC1Shim.IsSerana(npc))
-                    ; Serana's AI is different than that of any other follower, so the DD npc slots are not working
-                    DDNF_DLC1Shim.KickSeranaFromSandboxPackage(npc)
-                Else
-                    ; Let DD slots apply the bound sandbox package
-                    npcTracker.DDLibs.RepopulateNpcs()
+    If (_hasAnimation || _escapeAttemptLock)
+        DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
+        If (akNewPackage != npcTracker.BoundCombatNPCSandbox && akNewPackage != npcTracker.BoundNPCSandbox)
+            Package template = akNewPackage.GetTemplate()
+            If (template == npcTracker.Sandbox)
+                Actor npc = GetReference() as Actor
+                If (npc != None && IsParentCellAttached(npc))
+                    ; npc switched to sandbox package (other than DD sandbox packages), check if we can kick them out of it again
+                    If (npcTracker.EnablePapyrusLogging)
+                        Debug.Trace("[DDNF] Trying to kick " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " out of sandboxing package.")
+                    EndIf
+                    If (DDNF_Game.GetModName(npc) == "Dawnguard.esm" && DDNF_DLC1Shim.IsSerana(npc))
+                        ; Serana's AI is different than that of any other follower, so the DD npc slots are not working
+                        DDNF_DLC1Shim.KickSeranaFromSandboxPackage(npc)
+                    Else
+                        ; Let DD slots apply the bound sandbox package
+                        npcTracker.DDLibs.RepopulateNpcs()
+                    EndIf
                 EndIf
             EndIf
         EndIf
@@ -480,10 +479,18 @@ Event OnUpdate()
     If (scanForDevices)
         ; devices are not known, find and analyze them
         _renderedDevicesFlags = -12345 ; special tag
-        If (_renderedDevices.Length != 32) ; number of slots
-            _renderedDevices = new Armor[32]
+        Armor[] newRenderedDevices = new Armor[32]
+        renderedDevicesFlags = FindAndAnalyzeRenderedDevices(ddLibs, npc, newRenderedDevices, enablePapyrusLogging)
+        If (npcTracker.FixInconsistentDevices && IsCurrentFollower(npc, npcTracker) && FixInconsistentDevices(npc, newRenderedDevices, _renderedDevices, ddLibs, enablePapyrusLogging))
+            _renderedDevicesFlags = -1
+            RegisterForFixup() ; ignore the minimum time between fixups in this case, logically it is still "the same" fixup
+            _fixupLock = false
+            If (enablePapyrusLogging)
+                Debug.Trace("[DDNF] Aborted fixing up devices of " + formIdAndName + " and rescheduled (fixed inconsistent devices).")
+            EndIf
+            Return
         EndIf
-        renderedDevicesFlags = FindAndAnalyzeRenderedDevices(ddLibs, npc, _renderedDevices, enablePapyrusLogging)
+        _renderedDevices = newRenderedDevices
         _attemptedEscapeAgainstRenderedDevices = false
         If (GetState() != "AliasOccupied")
             ; something has triggered a new fixup while we were finding and analysing devices
@@ -540,7 +547,17 @@ Event OnUpdate()
             npc.RemoveFromFaction(panelGagFaction) ; dito
         EndIf
     EndIf
-    Int checkBitmap = UnequipAndEquipDevices(npc, _renderedDevices, devicesWithMagicalEffectCount)
+    Int dummyWeaponCount = npc.GetItemCount(npcTracker.DummyWeapon)
+    If (useUnarmedCombatPackage)
+        If (dummyWeaponCount == 0)
+            npc.AddItem(npcTracker.DummyWeapon, 1, true)
+        ElseIf (dummyWeaponCount > 1)
+            npc.RemoveItem(npcTracker.DummyWeapon, aiCount=dummyWeaponCount - 1, abSilent=true)
+        EndIf
+    ElseIf (dummyWeaponCount > 0)
+        npc.RemoveItem(npcTracker.DummyWeapon, aiCount=dummyWeaponCount, abSilent=true)
+    EndIf
+    Int checkBitmap = UnequipAndEquipDevices(npc, _renderedDevices, devicesWithMagicalEffectCount, ddLibs, enablePapyrusLogging)
     If (checkBitmap != 0)
         npc.UpdateWeight(0) ; workaround to force the game to correctly evaluate armor addon slots
         If (enablePapyrusLogging)
@@ -611,11 +628,6 @@ Event OnUpdate()
         RegisterForAnimationEvent(npc, "BeginWeaponDraw") ; register even if we think that we are already registered
     ElseIf (_useUnarmedCombatPackage)
         UnregisterForAnimationEvent(npc, "BeginWeaponDraw")
-        Int dummyWeaponCount = npc.GetItemCount(npcTracker.DummyWeapon)
-        If (dummyWeaponCount > 0)
-            npc.UnequipItemEx(npcTracker.DummyWeapon)
-            npc.RemoveItem(npcTracker.DummyWeapon, aiCount=dummyWeaponCount, abSilent=true)
-        EndIf
     EndIf
     ; almost done, so do not abort and reschedule if another fixup is scheduled, just let things run their normal course instead
 
@@ -722,7 +734,7 @@ Int Function FindAndAnalyzeRenderedDevices(zadLibs ddLibs, Actor npc, Armor[] re
             Else
                 Int slotMask = maybeRenderedDevice.GetSlotMask()
                 remainingSlots = Math.LogicalAnd(remainingSlots, Math.LogicalNot(slotMask))
-                Int deviceFlags = AnylyzeMaybeDevice(ddLibs, zadLockable, zadLockableCount > 0, zadDeviousPlug, zadDeviousPlugCount > 0, maybeRenderedDevice, true, enablePapyrusLogging) ; only use cached value
+                Int deviceFlags = AnalyzeMaybeDevice(ddLibs, zadLockable, zadLockableCount > 0, zadDeviousPlug, zadDeviousPlugCount > 0, maybeRenderedDevice, true, enablePapyrusLogging) ; only use cached value
                 If (deviceFlags > 0)
                     ; found a rendered device
                     combinedDeviceFlags = Math.LogicalOr(combinedDeviceFlags, deviceFlags)
@@ -752,7 +764,7 @@ Int Function FindAndAnalyzeRenderedDevices(zadLibs ddLibs, Actor npc, Armor[] re
             While (index >= 0 && bottomIndex < topIndex)
                 Armor maybeRenderedDevice = npc.GetNthForm(index) as Armor
                 If (maybeRenderedDevice != None)
-                    Int deviceFlags = AnylyzeMaybeDevice(ddLibs, zadLockable, zadLockableCount > 0, zadDeviousPlug, zadDeviousPlugCount > 0, maybeRenderedDevice, false, enablePapyrusLogging) ; analyze if not cached
+                    Int deviceFlags = AnalyzeMaybeDevice(ddLibs, zadLockable, zadLockableCount > 0, zadDeviousPlug, zadDeviousPlugCount > 0, maybeRenderedDevice, false, enablePapyrusLogging) ; analyze if not cached
                     If (deviceFlags > 0)
                         ; found a rendered device
                         combinedDeviceFlags = Math.LogicalOr(combinedDeviceFlags, deviceFlags)
@@ -792,7 +804,7 @@ Int Function FindAndAnalyzeRenderedDevices(zadLibs ddLibs, Actor npc, Armor[] re
     EndWhile
     ; assemble return value
     Int flags = bottomIndex
-    Int combinedDeviceFlagsMasked = Math.LogicalAnd(combinedDeviceFlags, 508) ; exclude "is rendered device" and "has magic effect" flags
+    Int combinedDeviceFlagsMasked = Math.LogicalAnd(combinedDeviceFlags, 508) ; exclude "is rendered device" and "has magic effect" flags, and all flags >= 512
     flags += combinedDeviceFlagsMasked * 64 ; shift left by 6 bits: 4 -> 256, 8 -> 512, ...
     If (Math.LogicalAnd(combinedDeviceFlagsMasked, 4) == 4)
         flags = Math.LogicalOr(flags, 16384) ; ensure "has animation" flag is set if any device had the "is heavy bondage" flag
@@ -804,18 +816,20 @@ EndFunction
 ;
 ; Analyze an armor that might be a rendered device.
 ; Returns an int composed of the following flags:
-;   1 - is rendered device
+;    1 - is rendered device
 ; All remaining flags are only set if flag 1 is set:
-;   2 - has magic effect
-;   4 - is heavy bondage
-;   8 - is bondage mittens
-;  16 - disables kicking
-;  32 - is gag
-;  64 - is panel gag
-; 128 - is blindfold 
-; 256 - is device other than heavy bondage that requires an animation
+;    2 - has magic effect
+;    4 - is heavy bondage
+;    8 - is bondage mittens
+;   16 - disables kicking
+;   32 - is gag
+;   64 - is panel gag
+;  128 - is blindfold 
+;  256 - is device other than heavy bondage that requires an animation
+;  512 - is any gloves (including bondage mittens)
+; 1024 - is quest device or is block generic device
 ; 
-Int Function AnylyzeMaybeDevice(zadLibs ddLibs, Keyword zadLockable, Bool checkZadLockable, Keyword zadDeviousPlug, Bool checkZadDeviousPlug, Armor maybeRenderedDevice, Bool useCachedValueOnly, Bool enablePapyrusLogging) Global
+Int Function AnalyzeMaybeDevice(zadLibs ddLibs, Keyword zadLockable, Bool checkZadLockable, Keyword zadDeviousPlug, Bool checkZadDeviousPlug, Armor maybeRenderedDevice, Bool useCachedValueOnly, Bool enablePapyrusLogging) Global
     Int flags = StorageUtil.GetIntValue(maybeRenderedDevice, "ddnf_a", -1)
     If (flags == -1)
         flags = 0
@@ -845,6 +859,12 @@ Int Function AnylyzeMaybeDevice(zadLibs ddLibs, Keyword zadLockable, Bool checkZ
             If (maybeRenderedDevice.HasKeyword(ddLibs.zad_DeviousPonyGear) || maybeRenderedDevice.HasKeyword(ddLibs.zad_DeviousHobbleSkirt) || maybeRenderedDevice.HasKeyword(ddLibs.zad_DeviousHobbleSkirtRelaxed))
                 flags += 256
             EndIf
+            If (maybeRenderedDevice.HasKeyword(ddLibs.zad_DeviousGloves))
+                flags += 512
+            EndIf
+            If (maybeRenderedDevice.HasKeyword(ddLibs.zad_QuestItem) || maybeRenderedDevice.HasKeyword(ddLibs.zad_BlockGeneric))
+                flags += 1024
+            EndIf
             StorageUtil.SetIntValue(maybeRenderedDevice, "ddnf_a", flags) ; only cache in StorageUtil if it is a device
             If (enablePapyrusLogging)
                 Debug.Trace("[DDNF] StorageUtil: SetIntValue(" + DDNF_Game.FormIdAsString(maybeRenderedDevice) + ", ddnf_a, " + flags + ")")
@@ -854,10 +874,106 @@ Int Function AnylyzeMaybeDevice(zadLibs ddLibs, Keyword zadLockable, Bool checkZ
     Return flags
 EndFunction
 
+Bool Function IsAllowedToSuppress(Int itemFlagsVisible, Int itemFlagsHidden) Global
+    ; allow heavy bondage to suppress gloves
+    ; sometimes the item slots are not compatible but the DD framework does not care and allows to equip both
+    ; so try to handle this case gracefully and keep the heavy bondage equipped, the gloves unequipped
+    Return Math.LogicalAnd(itemFlagsVisible, 5) == 5 && Math.LogicalAnd(itemFlagsHidden, 513) == 513
+EndFunction
+
+
+; try to fix inconsistent devices, will only fix a single one so needs to be called again on true
+Bool Function FixInconsistentDevices(Actor npc, Armor[] newRenderedDevices, Armor[] oldRenderedDevices, zadLibs ddLibs, Bool enablePapyrusLogging) Global
+    Int cumulatedSlotMask = 0
+    Int index = 0
+    While (index < newRenderedDevices.Length)
+        Armor renderedDevice = newRenderedDevices[index]
+        If (renderedDevice == None)
+            Return false
+        EndIf
+        Armor inventoryDevice = DDNF_NpcTracker.TryGetInventoryDevice(renderedDevice) ; may be None
+        If (!inventoryDevice)
+            Armor[] inventoryDevices = new Armor[32]
+            Int inventoryDeviceCount = ScanForInventoryDevices(ddLibs, npc, inventoryDevices, true, None)
+            Int inventoryDeviceIndex = 0
+            While (inventoryDeviceIndex < inventoryDeviceCount)
+                If (DDNF_NpcTracker.GetRenderedDevice(inventoryDevices[inventoryDeviceIndex], false) == renderedDevice)
+                    inventoryDevice = inventoryDevices[inventoryDeviceIndex]
+                    inventoryDeviceIndex = inventoryDevices.Length
+                EndIf
+                inventoryDeviceIndex += 1
+            EndWhile
+        EndIf
+        If (inventoryDevice == None || npc.GetItemCount(inventoryDevice) == 0)
+            Bool isQuestDevice = Math.LogicalAnd(AnalyzeMaybeDevice(ddLibs, ddLibs.zad_Lockable, true, ddLibs.zad_DeviousPlug, true, renderedDevice, false, enablePapyrusLogging), 1024) == 1024
+            If (!isQuestDevice && inventoryDevice != None)
+                isQuestDevice = inventoryDevice.HasKeyword(ddLibs.zad_QuestItem) || inventoryDevice.HasKeyword(ddLibs.zad_BlockGeneric)
+            EndIf
+            If (!isQuestDevice)
+                npc.UnequipItem(renderedDevice, abPreventEquip=true, abSilent=true)
+                npc.RemoveItem(renderedDevice, aiCount=npc.GetItemCount(renderedDevice), abSilent=true)
+                If (enablePapyrusLogging)
+                    Debug.Trace("[DDNF] Removed rendered device " + DDNF_Game.FormIdAsString(renderedDevice) + " from " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " because of missing inventory device.")
+                EndIf
+                Return true
+            EndIf
+        EndIf
+        Int slotMask = renderedDevice.GetSlotMask()
+        If (Math.LogicalAnd(cumulatedSlotMask, slotMask) != 0)
+            If (newRenderedDevices.RFind(renderedDevice, index - 1) > 0)
+                npc.RemoveItem(renderedDevice, aiCount=npc.GetItemCount(renderedDevice) - 1, abSilent=true)
+                Debug.Trace("[DDNF] Removed duplicate rendered device " + DDNF_Game.FormIdAsString(renderedDevice) + " from " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ".")
+                Return true
+            EndIf
+            Int deviceFlags = AnalyzeMaybeDevice(ddLibs, ddLibs.zad_Lockable, true, ddLibs.zad_DeviousPlug, true, renderedDevice, false, enablePapyrusLogging)
+            Armor deviceToRemove = None
+            Int backScanIndex = index - 1
+            While (backScanIndex >= 0)
+                Armor backScanRenderedDevice = newRenderedDevices[backScanIndex]
+                If (Math.LogicalAnd(backScanRenderedDevice.GetSlotMask(), slotMask) != 0)
+                    Int backScanDeviceFlags = AnalyzeMaybeDevice(ddLibs, ddLibs.zad_Lockable, true, ddLibs.zad_DeviousPlug, true, backScanRenderedDevice, false, enablePapyrusLogging)
+                    If (IsAllowedToSuppress(deviceFlags, backScanDeviceFlags) || IsAllowedToSuppress(backScanDeviceFlags, deviceFlags))
+                        deviceToRemove = None
+                    Else
+                        Bool deviceIsQuestDevice = Math.LogicalAnd(deviceFlags, 1024) == 1024
+                        If (!deviceIsQuestDevice && inventoryDevice != None)
+                            deviceIsQuestDevice = inventoryDevice.HasKeyword(ddLibs.zad_QuestItem) || inventoryDevice.HasKeyword(ddLibs.zad_BlockGeneric)
+                        EndIf
+                        If (!deviceIsQuestDevice)
+                            deviceToRemove = renderedDevice
+                        EndIf
+                        Bool backScanDeviceIsQuestDevice = Math.LogicalAnd(backScanDeviceFlags, 1024) == 0
+                        If (!backScanDeviceIsQuestDevice)
+                            Armor backScanInventoryDevice = DDNF_NpcTracker.TryGetInventoryDevice(backScanRenderedDevice) ; may be None
+                            If (backScanInventoryDevice != None && (backScanInventoryDevice.HasKeyword(ddLibs.zad_QuestItem) && backScanInventoryDevice.HasKeyword(ddLibs.zad_BlockGeneric)))
+                                backScanDeviceIsQuestDevice = true
+                            EndIf
+                        EndIf
+                        If (!backScanDeviceIsQuestDevice && (deviceToRemove == None || oldRenderedDevices.Find(backScanRenderedDevice) < 0))
+                            deviceToRemove = backScanRenderedDevice 
+                        EndIf
+                    EndIf
+                EndIf
+                backScanIndex -= 1
+            EndWhile
+            If (deviceToRemove != None)
+                npc.UnequipItem(deviceToRemove, abPreventEquip=true, abSilent=true)
+                npc.RemoveItem(deviceToRemove, aiCount=npc.GetItemCount(deviceToRemove), abSilent=true)
+                If (enablePapyrusLogging)
+                    Debug.Trace("[DDNF] Removed rendered device " + DDNF_Game.FormIdAsString(deviceToRemove) + " from " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " to resolve slot mask conflicts.")
+                EndIf
+                Return true
+            EndIf
+        EndIf
+        cumulatedSlotMask = Math.LogicalOr(cumulatedSlotMask, slotMask)
+        index += 1
+    EndWhile
+    Return false
+EndFunction
+
 
 ; unequip and reequip devices, return a bitmap for the devices to check
-Int Function UnequipAndEquipDevices(Actor npc, Armor[] renderedDevices, Int devicesWithMagicalEffectCount) Global
-    Int currentBit = 1
+Int Function UnequipAndEquipDevices(Actor npc, Armor[] renderedDevices, Int devicesWithMagicalEffectCount, zadLibs ddLibs, Bool enablePapyrusLogging) Global
     Int bitmapToCheck = 0
     Int index = 0
     While (index < renderedDevices.Length && renderedDevices[index] != None)
@@ -872,18 +988,38 @@ Int Function UnequipAndEquipDevices(Actor npc, Armor[] renderedDevices, Int devi
             ; sometimes a conflicting "armor" from another mod is blocking the rendered device
             ; a known mod causing this issue is AllGUD with its various displayed things
             ; work around the issue by force-unequipping the conflicting armor
+            needsReequip = true
             Int slotMask = renderedDevices[index].GetSlotMask()
             Armor conflictingItem = npc.GetWornForm(slotMask) as Armor
             If (conflictingItem != None)
-                npc.UnequipItem(conflictingItem, abPreventEquip=true, abSilent=true)
+                Int itemFlags = AnalyzeMaybeDevice(ddLibs, ddLibs.zad_Lockable, true, ddLibs.zad_DeviousPlug, true, renderedDevices[index], false, enablePapyrusLogging)
+                Int conflictingItemFlags = AnalyzeMaybeDevice(ddLibs, ddLibs.zad_Lockable, true, ddLibs.zad_DeviousPlug, true, conflictingItem, false, enablePapyrusLogging)
+                If (IsAllowedToSuppress(conflictingItemFlags, itemFlags))
+                    If (enablePapyrusLogging)
+                        Debug.Trace("[DDNF] Keeping rendered device " + DDNF_Game.FormIdAsString(renderedDevices[index]) + " unequipped on " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " because of a valid suppression.")
+                    EndIf
+                    needsReequip = false
+                Else
+                    npc.UnequipItem(conflictingItem, abPreventEquip=true, abSilent=true)
+                    If (IsAllowedToSuppress(itemFlags, conflictingItemFlags))
+                        If (enablePapyrusLogging)
+                            Debug.Trace("[DDNF] Unequipping rendered device " + DDNF_Game.FormIdAsString(conflictingItem) + " from " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " because of a valid suppression.")
+                        EndIf
+                        Int conflictingItemIndex = renderedDevices.Find(conflictingItem)
+                        If (conflictingItemIndex >= 0)
+                            Int conflictingBit = Math.LeftShift(1, conflictingItemIndex)
+                            If (Math.LogicalAnd(bitmapToCheck, conflictingBit) == conflictingBit)
+                                bitmapToCheck = Math.LogicalXor(bitmapToCheck, conflictingBit)
+                            EndIf
+                        EndIf
+                    EndIf
+                EndIf
             EndIf
-            needsReequip = true
         EndIf
         If (needsReequip && npc.GetItemCount(renderedDevices[index]) > 0) ; safety check
             npc.EquipItem(renderedDevices[index], abPreventRemoval=true, abSilent=true)
-            bitmapToCheck = Math.LogicalOr(bitmapToCheck, currentBit)
+            bitmapToCheck = Math.LogicalOr(bitmapToCheck, Math.LeftShift(1, index))
         EndIf
-        currentBit = Math.LeftShift(currentBit, 1)
         index += 1
     EndWhile
     Return bitmapToCheck
@@ -927,18 +1063,24 @@ Bool Function UnequipWeapons(Actor npc, Weapon ignoreWeapon = None) Global
     If (itemType != 0)
         If (itemType == 9)
             Spell leftHandSpell = npc.GetEquippedSpell(0)
-            npc.UnequipSpell(leftHandSpell, 0)
+            If (leftHandSpell != None)
+                npc.UnequipSpell(leftHandSpell, 0)
+            EndIf
         ElseIf (itemType == 10)
             Armor shield = npc.GetEquippedShield()
-            npc.UnequipItem(shield, abSilent=true)
+            If (shield != None)
+                npc.UnequipItem(shield, abSilent=true)
+            EndIf
         Else
             Weapon leftHandWeapon = npc.GetEquippedWeapon(true)
-            If (ignoreWeapon == None)
-                npc.UnequipItemEx(leftHandWeapon, equipSlot=0)
-            ElseIf (leftHandWeapon != ignoreWeapon)
-                npc.UnequipItemEx(leftHandWeapon, equipSlot=0)
-            Else
-                keptIgnoreWeapon = true
+            If (leftHandWeapon != None)
+                If (ignoreWeapon == None)
+                    npc.UnequipItemEx(leftHandWeapon, equipSlot=0)
+                ElseIf (leftHandWeapon != ignoreWeapon)
+                    npc.UnequipItemEx(leftHandWeapon, equipSlot=0)
+                Else
+                    keptIgnoreWeapon = true
+                EndIf
             EndIf
         EndIf
     EndIf
@@ -1031,8 +1173,8 @@ Int Function QuickEquipDevices(Armor[] devices, Int count, Bool equipRenderedDev
                         If (DDNF_NpcTracker.TryGetInventoryDevice(inventoryDevice.deviceRendered) == None)
                             DDNF_NpcTracker.LinkInventoryDeviceAndRenderedDevice(inventoryDevice.deviceInventory, inventoryDevice.deviceRendered, npcTracker.EnablePapyrusLogging)
                         EndIf
-                        npc.AddItem(inventoryDevice.deviceRendered, 1, true)
                         npc.AddItem(inventoryDevice.deviceInventory, 1, true)
+                        npc.AddItem(inventoryDevice.deviceRendered, 1, true)
                         if (equipRenderedDevices)
                             npc.EquipItem(inventoryDevice.deviceRendered, abPreventRemoval=true, abSilent=true)
                         EndIf
@@ -1115,6 +1257,26 @@ Event OnUpdateGameTime()
                 ; escape system is enabled for this NPC
                 Float hoursSinceLastAttempt = (Utility.GetCurrentGameTime() - _lastEscapeAttemptGameTime) * 24.0
                 If (hoursSinceLastAttempt >= struggleFrequency)
+                    If (npc.IsPlayerTeammate())
+                        Int playerCombatState = npcTracker.Player.GetCombatState()
+                        Bool playerIsSneaking = npcTracker.Player.IsSneaking()
+                        If (playerCombatState > 0 || playerIsSneaking)
+                            If (npcTracker.EnablePapyrusLogging)
+                                If (playerCombatState > 0)
+                                    Debug.Trace("[DDNF] Escape system: Rescheduling attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ", is player teammate and player in combat.")
+                                Else
+                                    Debug.Trace("[DDNF] Escape system: Rescheduling attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ", is player teammate and player is sneaking.")
+                                EndIf
+                            EndIf
+                            GlobalVariable timeScale = Game.GetFormFromFile(0x00003A, "Skyrim.esm") as GlobalVariable
+                            Float delay = Utility.RandomFloat(15, 30) * timeScale.GetValueInt() / 3600 ; X seconds real time
+                            If (delay < 0.03)
+                                delay = 0.03 ; RegisterForSingleUpdateGameTime can crash on very small values
+                            EndIf
+                            RegisterForSingleUpdateGameTime(delay)
+                            Return
+                        EndIf
+                    EndIf
                     If (_lastEscapeAttemptGameTime >= -24 && (hoursSinceLastAttempt - struggleFrequency) > 0.6) 
                         Utility.Wait(Utility.RandomFloat(4, 24)) ; wait some time to give scripts time after fast travel/wait/sleep and to introduce additonal jitter
                     EndIf
@@ -1143,7 +1305,20 @@ EndEvent
 ;
 Int Function PerformEscapeAttempt(Bool suppressNotifications)
     ; check if escape attempt can be made
+    Actor npc = GetReference() as Actor
+    If (npc == None) ; check for race condition
+        Return -1
+    EndIf
     DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
+    Bool isCurrentFollower = IsCurrentFollower(npc, npcTracker)
+    If (!isCurrentFollower)
+        If (HasDeviousDevicesDependency(npc, npcTracker))
+            If (npcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] Aborting escape attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " because defining mod depends on Devious Devices.")
+            EndIf
+            Return -1
+        EndIf
+    EndIf
     If (_renderedDevicesFlags < 0 || _fixupLock)
         If (npcTracker.EnablePapyrusLogging)
             Debug.Trace("[DDNF] Trying to delay  escape attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " until after fixup.")
@@ -1156,25 +1331,16 @@ Int Function PerformEscapeAttempt(Bool suppressNotifications)
             EndIf
             waitCount += 1
         EndWhile
+        If ((GetReference() as Actor) != npc) ; check for race condition
+            Return -1
+        EndIf
     EndIf
     If (_escapeAttemptLock)
         Return -1 ; concurrent attempt running
     EndIf
-    Actor npc = GetReference() as Actor
-    If (npc == None) ; check for race condition
-        Return -1
-    EndIf
-    Bool isCurrentFollower = IsCurrentFollower(npc, npcTracker)
-    If (!isCurrentFollower)
-        Int formId = npc.GetFormID()
-        Int modId = DDNF_Game.GetModId(formId)
-        If (modId >= 0 && DDNF_Game.IsMasterOf(npcTracker.DeviousDevicesIntegrationModId, modId))
-            Debug.Trace("[DDNF] Aborting escape attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " because defining mod depends on Devious Devices.")
-            Return -1
-        EndIf
-    EndIf
     _escapeAttemptLock = true
-    Bool doNotStruggleIfChanceZeroPercent = _attemptedEscapeAgainstRenderedDevices && _noChanceInLastEscapeAttempt
+    Bool doNotStruggleIfChanceZeroPercent = !npcTracker.StruggleIfPointless && _attemptedEscapeAgainstRenderedDevices
+    Int struggleLimit = npcTracker.AbortStrugglingAfterFailedDevices
     _attemptedEscapeAgainstRenderedDevices = true
 
     ; loop over all devices and try to escape from them
@@ -1190,7 +1356,7 @@ Int Function PerformEscapeAttempt(Bool suppressNotifications)
     Armor lastUnequippedDevice = None
     While (!abortEscapeAttempt)
         If (lastUnequippedDevice != None)
-            Utility.Wait(2) ; short break between unequipping devices
+            Utility.Wait(1) ; short break between unequipping devices
         EndIf
         Armor deviceToUnequip = ChooseDeviceForUnequip(true, failedDevices, failedDevicesCount, true) ; allow quest devices, they will fail in TryToEscapeDevice
         If (deviceToUnequip == None)
@@ -1207,11 +1373,21 @@ Int Function PerformEscapeAttempt(Bool suppressNotifications)
                 failedDevices[failedDevicesCount] = deviceToUnequip
                 failedDevicesCount += 1
                 If (escapeResult.Length == 1 || failedDevicesCount == failedDevices.Length)
-                    Debug.Trace("[DDNF] Escape attempt (" + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() +  "): Early abort due to unexpected failure.")
+                    If (npcTracker.enablePapyrusLogging)
+                        Debug.Trace("[DDNF] Escape attempt (" + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() +  "): Early abort due to unexpected failure.")
+                    EndIf
                     abortEscapeAttempt = true
                 Else
                     If (escapeResult[1])
                         noChanceDeviceCount += 1
+                    EndIf
+                    If (struggleLimit > 0)
+                        If ((failedDevicesCount - noChanceDeviceCount) >= struggleLimit || (!doNotStruggleIfChanceZeroPercent && failedDevicesCount >= struggleLimit))
+                            abortEscapeAttempt = true
+                            If (npcTracker.enablePapyrusLogging)
+                                Debug.Trace("[DDNF] Escape attempt (" + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() +  "): Early abort due to reaching limit of " + npcTracker.AbortStrugglingAfterFailedDevices + ".")
+                            EndIf
+                        EndIf
                     EndIf
                 EndIf
             EndIf
@@ -1260,7 +1436,6 @@ Int Function PerformEscapeAttempt(Bool suppressNotifications)
         EndIf
     EndIf
     If (npc == (GetReference() as Actor))
-        _noChanceInLastEscapeAttempt = noChanceToEscape
         _lastEscapeAttemptGameTime = Utility.GetCurrentGameTime()
     EndIf
     If (npcTracker.EnablePapyrusLogging)
@@ -1271,7 +1446,6 @@ Int Function PerformEscapeAttempt(Bool suppressNotifications)
     _escapeAttemptLock = false
     Return succeededDeviceCount
 EndFunction
-
 
 Bool Function IsCurrentFollower(Actor npc, DDNF_NpcTracker npcTracker) Global
     Bool result = npc.GetFactionRank(npcTracker.CurrentFollowerFaction) >= 0
@@ -1287,6 +1461,34 @@ Bool Function IsCurrentFollower(Actor npc, DDNF_NpcTracker npcTracker) Global
         EndIf
     EndIf
     Return result
+EndFunction
+
+Bool Function HasDeviousDevicesDependency(Form item, DDNF_NpcTracker npcTracker) Global
+    If (item != None)
+        Int formId = item.GetFormID()
+        Int modId = DDNF_Game.GetModId(formId)
+        If (modId > 0 && modId != npcTracker.DeviousDevicesIntegrationModId)
+            String modName = Game.GetModName(modId)
+            If (modName != "")
+                String storageUtilKey = "ddnf_dd_dep<" + modName + ">"
+                Int hasDependency = StorageUtil.GetIntValue(None, storageUtilKey, -1)
+                If (hasDependency == -1)
+                    hasDependency = 0
+                    If (DDNF_Game.IsMasterOf(npcTracker.DeviousDevicesIntegrationModId, modId))
+                        hasDependency = 1
+                    EndIf
+                    StorageUtil.SetIntValue(None, storageUtilKey, hasDependency)
+                    If (npcTracker.EnablePapyrusLogging)
+                        Debug.Trace("[DDNF] StorageUtil: SetIntValue(None, " + storageUtilKey + ", " + hasDependency + ")")
+                    EndIf
+                EndIf
+                If (hasDependency > 0)
+                    Return true
+                EndIf
+            EndIf
+        EndIf
+    EndIf
+    Return false
 EndFunction
 
 String Function GetStatusText(zadLibs ddLibs, Bool includeHelpless)
@@ -1307,7 +1509,7 @@ String Function GetStatusText(zadLibs ddLibs, Bool includeHelpless)
             fragmentCount += 1
         EndIf
         If (IsBlindfold())
-            fragments[fragmentCount] =  "blindfold"
+            fragments[fragmentCount] =  " blindfold"
             fragmentCount += 1
         EndIf
         If (npc.GetItemCount(ddLibs.zad_DeviousBelt))
@@ -1356,7 +1558,7 @@ Armor Function ChooseDeviceForUnequip(Bool unequipSelf, Armor[] devicesToIgnore,
     Armor[] inventoryDevices = new Armor[32]
     Int deviceCount = TryGetEquippedDevices(inventoryDevices, None)
     If (deviceCount < 0)
-        deviceCount = ScanForEquippedInventoryDevices(npcTracker.ddLibs, npc, inventoryDevices, None)
+        deviceCount = ScanForInventoryDevices(npcTracker.ddLibs, npc, inventoryDevices, true, None)
     EndIf
     Armor[] renderedDevices = new Armor[32]
     Int index = 0
@@ -1468,9 +1670,10 @@ Bool Function CheckUnequipPossibleInternal(Actor npc, Armor inventoryDevice, Arm
         EndIf
         Return cachedCounts[3] == 0
     EndIf
-    If (renderedDevice.HasKeyword(ddLibs.zad_DeviousPlug))
-        If (renderedDevice.HasKeyword(ddLibs.zad_DeviousPlugVaginal))
-            ; belts and suit may block vaginal plugs
+    Bool isVaginalPiercing = renderedDevice.HasKeyword(ddLibs.zad_DeviousPiercingsVaginal)
+    If (isVaginalPiercing || renderedDevice.HasKeyword(ddLibs.zad_DeviousPlug))
+        If (isVaginalPiercing || renderedDevice.HasKeyword(ddLibs.zad_DeviousPlugVaginal))
+            ; belts and suit may block vaginal plugs and vaginal piercings
             If (cachedCounts[4] < 0)
                 cachedCounts[4] = npc.GetItemCount(ddLibs.zad_DeviousBelt)
             EndIf
@@ -1496,8 +1699,8 @@ Bool Function CheckUnequipPossibleInternal(Actor npc, Armor inventoryDevice, Arm
             Return (cachedCounts[4] + cachedCounts[5]) == 0 || cachedCounts[7] > 0
         EndIf
     EndIf
-    If (renderedDevice.HasKeyword(ddLibs.zad_DeviousPiercingsNipple))
-        ; bras and suit may block nipple piercings
+    If (renderedDevice.HasKeyword(ddLibs.zad_DeviousPiercingsNipple) || renderedDevice.HasKeyword(ddLibs.zad_DeviousClamps) )
+        ; bras and suit may block nipple piercings and clamps
         If (cachedCounts[8] < 0)
             cachedCounts[8] = npc.GetItemCount(ddLibs.zad_DeviousBra)
         EndIf
@@ -1513,23 +1716,23 @@ EndFunction
 ;
 ; Get the "weight" to use when selecting a device for unequipping; this should be used as a probability.
 ;
-Int Function GetWeigthForUnequip(zadLibs ddLibs, Armor renderedDevice, Bool enablePapyrusLogginf) Global ; higher is more important
-    Int flags = AnylyzeMaybeDevice(ddLibs, ddLibs.zad_Lockable, true, ddLibs.zad_DeviousPlug, true, renderedDevice, false, enablePapyrusLogginf)
+Int Function GetWeigthForUnequip(zadLibs ddLibs, Armor renderedDevice, Bool enablePapyrusLogging) Global ; higher is more important
+    Int flags = AnalyzeMaybeDevice(ddLibs, ddLibs.zad_Lockable, true, ddLibs.zad_DeviousPlug, true, renderedDevice, false, enablePapyrusLogging)
     If (Math.LogicalAnd(flags, 4) == 4)
         ; first heavy bondage
         Return 16
     EndIf
     If (Math.LogicalAnd(flags, 8) == 8)
         ; then mittens
-        Return 8
+        Return 12
     EndIf
     If (Math.LogicalAnd(flags, 32) == 32 || Math.LogicalAnd(flags, 128) == 128)
         ; then gags and blindfolds (this includes many hoods)
-        Return 5
+        Return 8
     EndIf
     If (Math.LogicalAnd(flags, 16) == 16)
         ; then fetters
-        Return 3
+        Return 4
     EndIf
     ; then everything else
     If (flags > 0)
@@ -1567,7 +1770,7 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool doNotStr
         tempRef.Delete()
         Return new Bool[1]
     EndIf
-    Int deviceFlags = AnylyzeMaybeDevice(ddLibs, ddLibs.zad_Lockable, true, ddLibs.zad_DeviousPlug, true, renderedDevice, false, npcTracker.enablePapyrusLogging)
+    Int deviceFlags = AnalyzeMaybeDevice(ddLibs, ddLibs.zad_Lockable, true, ddLibs.zad_DeviousPlug, true, renderedDevice, false, npcTracker.enablePapyrusLogging)
     Bool deviceIsHeavyBondage = Math.LogicalAnd(deviceFlags, 4) == 4
     Bool deviceIsBondageMittens = Math.LogicalAnd(deviceFlags, 8) == 8
     Bool handsBlocked = deviceIsBondageMittens || npc.GetItemCount(ddLibs.zad_DeviousBondageMittens) > 0 || npc.GetItemCount(ddLibs.zad_DeviousStraitJacket) > 0
@@ -1618,21 +1821,23 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool doNotStr
                 Utility.Wait(5) ; no animation and only use half the usual time
                 success = true
             Else
+                String struggleMessage = ""
                 If (notifyPlayer)
                     If (equipScript.deviceKey == None)
-                        Debug.Notification(npc.GetDisplayName() + " is strugging to remove" + possessive + equipScript.deviceName)
+                        struggleMessage = npc.GetDisplayName() + " is strugging to remove" + possessive + equipScript.deviceName
                     Else
-                        Debug.Notification(npc.GetDisplayName() + " is strugging to unlock" + possessive + equipScript.deviceName)
+                        struggleMessage = npc.GetDisplayName() + " is strugging to unlock" + possessive + equipScript.deviceName
                     EndIf
                 EndIf
-                PlayStruggleAnimation(ddLibs, equipScript, npc)
+                PlayStruggleAnimation(ddLibs, equipScript, npc, struggleMessage)
                 success = Utility.RandomFloat(0, 99.9) < unlockChance
             EndIf
         Else
+            String struggleMessage = ""
             If (notifyPlayer)
-                Debug.Notification(npc.GetDisplayName() + " is strugging against" + possessive + equipScript.deviceName)
+                struggleMessage = npc.GetDisplayName() + " is strugging to escape" + possessive + equipScript.deviceName
             EndIf
-            PlayStruggleAnimation(ddLibs, equipScript, npc)
+            PlayStruggleAnimation(ddLibs, equipScript, npc, struggleMessage)
             success = struggleChance > 0 && Utility.RandomFloat(0, 99.9) < struggleChance
         EndIf
         If (success)
@@ -1703,12 +1908,15 @@ Float Function Clamp(Float value, Float min, Float max) Global
     EndIf
 EndFunction
 
-Bool Function PlayStruggleAnimation(zadLibs ddLibs, zadEquipScript deviceInstance, Actor npc) Global
+Bool Function PlayStruggleAnimation(zadLibs ddLibs, zadEquipScript deviceInstance, Actor npc, String struggleMessage) Global
     String[] struggleArray = deviceInstance.SelectStruggleArray(npc)
     Bool playAnimation = struggleArray.Length > 0 && IsParentCellAttached(npc) && !ddLibs.IsAnimating(npc)
     Bool[] cameraState
     If (playAnimation)
         cameraState = ddLibs.StartThirdPersonAnimation(npc, struggleArray[Utility.RandomInt(0, struggleArray.Length - 1)], true)
+    EndIf
+    If (struggleMessage)
+        Debug.Notification(struggleMessage)
     EndIf
     Utility.Wait(10)
     If (IsParentCellAttached(npc))
@@ -1814,7 +2022,7 @@ Int Function TryGetEquippedDevices(Armor[] outputArray, Keyword optionalKeywordF
     Return index
 EndFunction
 
-Int Function ScanForEquippedInventoryDevices(zadLibs ddLibs, Actor npc, Armor[] outputArray, Keyword optionalKeywordForRenderedDevice) Global ; Global and slow
+Int Function ScanForInventoryDevices(zadLibs ddLibs, Actor npc, Armor[] outputArray, Bool equippedOnly, Keyword optionalKeywordForRenderedDevice) Global ; Global and slow
     If (npc == None)
         Return 0
     EndIf
@@ -1826,7 +2034,7 @@ Int Function ScanForEquippedInventoryDevices(zadLibs ddLibs, Actor npc, Armor[] 
         Armor maybeInventoryDevice = npc.GetNthForm(index) as Armor
         If (maybeInventoryDevice != None)
             Armor renderedDevice = DDNF_NpcTracker.GetRenderedDevice(maybeInventoryDevice, false)
-            If (renderedDevice != None && npc.GetItemCount(renderedDevice) > 0 && (optionalKeywordForRenderedDevice == None || renderedDevice.HasKeyword(optionalKeywordForRenderedDevice)))
+            If (renderedDevice != None && (!equippedOnly || npc.GetItemCount(renderedDevice) > 0) && (optionalKeywordForRenderedDevice == None || renderedDevice.HasKeyword(optionalKeywordForRenderedDevice)))
                 foundDevices += 1
                 If (outputArrayIndex == 0 || outputArray.RFind(maybeInventoryDevice, outputArrayIndex - 1) < 0) ; filter out duplicates
                     outputArray[outputArrayIndex] = maybeInventoryDevice

@@ -21,11 +21,15 @@ Package Property BoundNPCSandbox Auto
 Weapon Property DummyWeapon Auto
 zadLibs Property DDLibs Auto
 
+Bool Property IsEnabled = True Auto
 Bool Property UseBoundCombat Auto
-Bool Property EnablePapyrusLogging = False Auto Conditional
+Bool Property EnablePapyrusLogging = False Auto
+Bool Property FixInconsistentDevices = True Auto
 Bool Property RestoreOriginalOutfit = False Auto
 Bool Property AllowManipulationOfDevices = True Auto
 Bool Property EscapeSystemEnabled = False Auto
+Bool Property StruggleIfPointless = False Auto
+Int Property AbortStrugglingAfterFailedDevices = 3 Auto ; 0 disables
 Int Property CurrentFollowerStruggleFrequency = 2 Auto ; 0 disables
 Bool Property NotifyPlayerOfCurrentFollowerStruggle = True Auto
 Bool Property OnlyDisplayFinalSummaryMessage = True Auto
@@ -80,6 +84,7 @@ EndFunction
 
 Function HandleGameLoaded(Bool upgrade)
     If (upgrade)
+        IsEnabled = IsRunning()
         ; stop further fixups until the upgrade is done
         UnregisterForUpdate()
         _attemptedFixupsInPeriod = 9999
@@ -90,6 +95,8 @@ Function HandleGameLoaded(Bool upgrade)
         _cachedNpcs = emptyFormArray
         ; clear StorageUtil data
         ClearStorageUtilData()
+    Else
+        StorageUtil.ClearAllPrefix("ddnf_s_") ; prefix for values only valid for current game session
     EndIf
     ; refresh soft dependencies
     RefreshWeaponDisplayArmors()
@@ -186,6 +193,9 @@ EndFunction
 ; Returns the index if the actor was is tracked (either newly, or already was), -1 on failure
 ;
 Int Function Add(Actor npc)
+    If (!IsEnabled)
+        Return -1
+    EndIf
     ; check if the NPC is already in an alias
     If (npc == Player) ; catch api misuse
         Return -1
