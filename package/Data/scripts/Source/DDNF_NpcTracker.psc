@@ -95,8 +95,6 @@ Function HandleGameLoaded(Bool upgrade)
         _cachedNpcs = emptyFormArray
         ; clear StorageUtil data
         ClearStorageUtilData()
-    Else
-        StorageUtil.ClearAllPrefix("ddnf_s_") ; prefix for values only valid for current game session
     EndIf
     ; refresh soft dependencies
     RefreshWeaponDisplayArmors()

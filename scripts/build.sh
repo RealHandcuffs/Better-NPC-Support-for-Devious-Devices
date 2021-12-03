@@ -15,9 +15,14 @@ set -e
 # check arguments
 CLEAN=1
 QUIET=""
+LOOSE=0
 for VAR in "$@"
 do
   case "$VAR" in
+    "-l" )
+      LOOSE=1;;
+    "--loose" )
+      LOOSE=0;;
     "-n" )
       CLEAN=0;;
     "--no-clean" )
@@ -31,7 +36,7 @@ do
       then
         echo "Invalid argument: $VAR"
       fi
-      echo "Usage: $(basename "$0") [-q|--quiet] [-n|--no-clean]"
+      echo "Usage: $(basename "$0") [-q|--quiet] [-n|--no-clean] [-l|--loose]"
       exit -1;;
   esac
 done
@@ -77,12 +82,70 @@ mv build/package/FOMod/info.xml build/package/FOMod/info.xml.old
 VERSION=$VERSION envsubst < build/package/FOMod/info.xml.old > build/package/FOMod/info.xml
 rm build/package/FOMod/info.xml.old
 
+# set up function to build bsa archive
+# $1: folder (must be folder in build/package, without the "build" part
+# $2: name of the archive to create
+function build_bsa() {
+  if [[ "$QUIET" == "" ]]
+  then
+     echo "Packing files in $1:"
+  fi
+  cd "$BASE_DIR/build/$1"
+  ROOT=$(pwd | sed -e 's/\///' -e 's/\//:\\/' -e 's/\//\\/g')
+  find . -type f ! -name '*.esp' | sed -e 's/.\///' > "$BASE_DIR/build/$2.lst"
+  if [[ "$QUIET" == "" ]]
+  then
+     echo "  $(wc -l < "$BASE_DIR/build/$2.lst") files found."
+  fi
+  if [[ -s "$BASE_DIR/build/$2.lst" ]]
+  then
+    TEMP_DIR=$(mktemp -d)
+    tar -c -O -T "$BASE_DIR/build/$2.lst" | tar -x -C "$TEMP_DIR"
+    cd "$TEMP_DIR"
+    echo "Log: archive.log" > archive.txt
+    echo "New Archive" >> archive.txt
+    echo "Check: Retain Directory Names" >> archive.txt
+    echo "Check: Retain File Names" >> archive.txt
+    echo "Check: Compress Archive" >> archive.txt
+    for DIR in $(ls -1 -d */ | sed 's:/*$::')
+    do
+        case "$DIR" in
+            "scripts" )
+                echo "Check: Misc" >> archive.txt ;;
+            * )
+                echo Unknown directory: "$DIR"
+                exit -1;;
+        esac
+    done
+    ls -1 -d */ | sed 's:/*$::' | xargs -i{} echo "Add Directory: {}" >> archive.txt
+    echo "Save Archive: $2" >> archive.txt
+    "$DIR_SKYRIM_CREATION_KIT/Archive.exe" archive.txt
+    mv "$2" "$BASE_DIR/build/$1"
+    mv archive.log "$BASE_DIR/build/$2.log"
+    cd "$BASE_DIR/build/$1"
+    rm -r "$TEMP_DIR"
+    xargs -a "$BASE_DIR/build/$2.lst" -d '\n' rm
+    find . -type d -empty -delete
+    if [[ "$QUIET" == "" ]]
+    then
+      echo "  $2 ($(stat --printf="%s" "$2") bytes)"
+    fi
+  fi
+  cd "$BASE_DIR"
+}
+
+# call the function for the package/Data folder
+if [[ $LOOSE == 0 ]]
+then
+  build_bsa "package/Data" "DD_NPC_Fixup.bsa"
+fi
+
 # create archive of build/package folder
 if [[ "$QUIET" == "" ]]
 then
   echo "Creating archive:"
 fi
-"$TOOL_7ZIP" a -t7z -mx=9 -mmt=off "build\Better NPC Support for Devious Devices $VERSION.7z" ".\build\package\*" > /dev/null
+"$TOOL_7ZIP" a -t7z -mx=9 -myx=9 -mmt=off "build\Better NPC Support for Devious Devices $VERSION.7z" ".\build\package\*" > /dev/null
 if [[ "$QUIET" == "" ]]
 then
   echo "  build\Better NPC Support for Devious Devices $VERSION.7z ($(stat --printf="%s" "$BASE_DIR/build\Better NPC Support for Devious Devices $VERSION.7z") bytes)"

@@ -136,6 +136,7 @@ Version 0.5 beta 6
 - Various fixes, tweaks and internal changes to escape system and handling of devices
 
 Version 0.5 beta 7
+- Change package to contain .bsa archive instead of loose files
 - Add option to fix inconsistent devices of current followers automatically, enabled by default
 - Player teammates will not start to struggle when the player is in combat or sneaking
 - Change layout of MCM menu
