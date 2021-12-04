@@ -10,6 +10,7 @@ Actor Property Player Auto
 Faction Property CurrentFollowerFaction Auto
 Faction Property DeviceTargets Auto
 Faction Property Helpless Auto
+Faction Property Struggling Auto
 Faction Property UnarmedCombatants Auto
 FormList Property WeaponDisplayArmors Auto
 Keyword Property TrackingKeyword Auto

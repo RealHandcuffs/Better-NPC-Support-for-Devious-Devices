@@ -146,3 +146,4 @@ Version 0.5 beta 7
 
 Varion 0.5 beta 8
 - Interrupt escape attempts when NPCs are hit
+- Prevent struggling NPCs from moving or using furniture

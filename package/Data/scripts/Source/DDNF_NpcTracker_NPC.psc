@@ -85,6 +85,7 @@ Function ForceRefTo(ObjectReference akNewRef) ; override
         _quickEquipRunning = 0
         GotoState("AliasOccupied")
         ; we will receive OnDeath event when NPC dies from now on, but they might already be dead
+        npc.RemoveFromFaction(npcTracker.Struggling) ; safety code in case something went wrong
         If (npc.IsDead())
             Clear()
         ElseIf (!IsParentCellAttached(npc)) ; same for OnCellDetach
@@ -1391,9 +1392,16 @@ Int Function PerformEscapeAttempt(Bool suppressNotifications)
             Return -1
         EndIf
     EndIf
+    If (npc.GetCurrentScene() != None)
+        Debug.Trace("[DDNF] Aborting escape attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " because actor is in scene.")
+        Return -1
+    EndIf
     If (!GotoStateStruggling())
         Return -1 ; concurrent attempt running
     EndIf
+    npc.AddToFaction(npcTracker.Struggling)
+    npc.SetFactionRank(npcTracker.Struggling, 1)
+    npc.EvaluatePackage()
     Bool doNotStruggleIfChanceZeroPercent = !npcTracker.StruggleIfPointless && _attemptedEscapeAgainstRenderedDevices
     Int struggleLimit = npcTracker.AbortStrugglingAfterFailedDevices
     _attemptedEscapeAgainstRenderedDevices = true
@@ -1448,6 +1456,8 @@ Int Function PerformEscapeAttempt(Bool suppressNotifications)
             EndIf
         EndIf
     EndWhile
+    npc.RemoveFromFaction(npcTracker.Struggling)
+    npc.EvaluatePackage()
     Int remainingDevicesCount = npc.GetItemCount(npcTracker.DDLibs.zad_Lockable) + npc.GetItemCount(npcTracker.DDLibs.zad_DeviousPlug)
     Bool escapeAttemptInterrupted = !IsStruggling()
     If (!escapeAttemptInterrupted)
@@ -1873,15 +1883,15 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool doNotStr
         Bool useUnlockAction = unlockChance > 0 && unlockChance >= struggleChance
         If (useUnlockAction)
             If (unlockChance == 100 && !deviceIsHeavyBondage && !deviceIsBondageMittens)
+                String struggleMessage = ""
                 If (notifyPlayer)
                     If (equipScript.deviceKey == None)
-                        Debug.Notification(npc.GetDisplayName() + " is removing" + possessive + equipScript.deviceName)
+                        struggleMessage = npc.GetDisplayName() + " is removing" + possessive + equipScript.deviceName
                     Else
-                        Debug.Notification(npc.GetDisplayName() + " is unlocking" + possessive + equipScript.deviceName)
+                        struggleMessage = npc.GetDisplayName() + " is unlocking" + possessive + equipScript.deviceName
                     EndIf
                 EndIf
-                Utility.Wait(5) ; no animation and only use half the usual time
-                success = true
+                success = PlayStruggleAnimation(ddLibs, equipScript, npc, struggleMessage, true) ; only play short animation
             Else
                 String struggleMessage = ""
                 If (notifyPlayer)
@@ -1891,7 +1901,7 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool doNotStr
                         struggleMessage = npc.GetDisplayName() + " is strugging to unlock" + possessive + equipScript.deviceName
                     EndIf
                 EndIf
-                success = PlayStruggleAnimation(ddLibs, equipScript, npc, struggleMessage)
+                success = PlayStruggleAnimation(ddLibs, equipScript, npc, struggleMessage, false)
                 success = success && Utility.RandomFloat(0, 99.9) < unlockChance
             EndIf
         Else
@@ -1899,7 +1909,7 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool doNotStr
             If (notifyPlayer)
                 struggleMessage = npc.GetDisplayName() + " is strugging to escape" + possessive + equipScript.deviceName
             EndIf
-            success = PlayStruggleAnimation(ddLibs, equipScript, npc, struggleMessage)
+            success = PlayStruggleAnimation(ddLibs, equipScript, npc, struggleMessage, false)
             success = success && struggleChance > 0 && Utility.RandomFloat(0, 99.9) < struggleChance
         EndIf
         If (success)
@@ -1970,28 +1980,38 @@ Float Function Clamp(Float value, Float min, Float max) Global
     EndIf
 EndFunction
 
-Bool Function PlayStruggleAnimation(zadLibs ddLibs, zadEquipScript deviceInstance, Actor npc, String struggleMessage)
+Bool Function PlayStruggleAnimation(zadLibs ddLibs, zadEquipScript deviceInstance, Actor npc, String struggleMessage, Bool shortAnimationOnly)
     String[] struggleArray = deviceInstance.SelectStruggleArray(npc)
-    Bool playAnimation = struggleArray.Length > 0 && IsParentCellAttached(npc) && !ddLibs.IsAnimating(npc)
+    Bool playAnimation = struggleArray.Length > 0 && IsParentCellAttached(npc) && IsStruggling()
     Bool[] cameraState
+    Int waitCount = 3
+    While (waitCount > 0 && playAnimation && ddLibs.IsAnimating(npc))
+        Utility.Wait(1)
+        playAnimation = playAnimation && IsParentCellAttached(npc) && IsStruggling()
+        waitCount -= 1
+    EndWhile
     If (playAnimation)
         cameraState = ddLibs.StartThirdPersonAnimation(npc, struggleArray[Utility.RandomInt(0, struggleArray.Length - 1)], true)
     EndIf
     If (struggleMessage)
         Debug.Notification(struggleMessage)
     EndIf
-    Int waitCount = 10
-    While (waitCount >= 0 && IsStruggling())
+    If (shortAnimationOnly)
+        waitCount = 4
+    Else
+        waitCount = 10
+    EndIf
+    While (waitCount > 0 && IsStruggling())
         Utility.Wait(1)
         waitCount -= 1
     EndWhile
-    If (IsStruggling() && IsParentCellAttached(npc))
+    If (!shortAnimationOnly && IsStruggling() && IsParentCellAttached(npc))
         ddLibs.Pant(npc)
     EndIf
     If (playAnimation)
-        If (deviceInstance.zad_DeviousDevice == ddLibs.zad_DeviousHeavyBondage)
+        If (!shortAnimationOnly && deviceInstance.zad_DeviousDevice == ddLibs.zad_DeviousHeavyBondage)
             waitCount = 5 ; reduced from 10 for player
-            While (waitCount >= 0 && IsStruggling())
+            While (waitCount > 0 && IsStruggling())
                 Utility.Wait(1)
                 waitCount -= 1
             EndWhile
@@ -2000,7 +2020,7 @@ Bool Function PlayStruggleAnimation(zadLibs ddLibs, zadEquipScript deviceInstanc
             EndIf
             If (Utility.RandomInt() < 50)
                 waitCount = 5 ; reduced from 10 for player
-                While (waitCount >= 0 && IsStruggling())
+                While (waitCount > 0 && IsStruggling())
                     Utility.Wait(1)
                     waitCount -= 1
                 EndWhile
@@ -2008,7 +2028,7 @@ Bool Function PlayStruggleAnimation(zadLibs ddLibs, zadEquipScript deviceInstanc
         EndIf
         ddLibs.EndThirdPersonAnimation(npc, cameraState, true)
     EndIf
-    If (IsParentCellAttached(npc))
+    If (!shortAnimationOnly && IsParentCellAttached(npc))
         ddLibs.SexlabMoan(npc)
     EndIf
     Return IsStruggling()
