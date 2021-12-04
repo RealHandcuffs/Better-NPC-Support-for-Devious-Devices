@@ -143,3 +143,6 @@ Version 0.5 beta 7
 - Add more MCM settings for tweaking struggling behavior
 - Fix enable/disable NPC processing in MCM
 - Various minor fixes and improvements
+
+Varion 0.5 beta 8
+- Interrupt escape attempts when NPCs are hit
