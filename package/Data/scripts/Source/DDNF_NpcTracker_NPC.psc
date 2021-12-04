@@ -306,7 +306,7 @@ Event OnAnimationEvent(ObjectReference akSource, string asEventName)
                 npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
             EndIf
             If (_isHelpless)
-                Debug.SendAnimationEvent(npc, "IdleForceDefaultState") ; black magic
+                Debug.SendAnimationEvent(npc, "IdleForceDefaultState")
                 npc.SheatheWeapon()
             EndIf
         EndIf
@@ -659,7 +659,9 @@ Event OnUpdate()
         EndIf
         If (hasAnimation && animationIsApplied)
             ; un/reequipping devices can break the current idle and replace it with the default idle, restart the bound idle
-            Debug.SendAnimationEvent(npc, "IdleForceDefaultState")
+            If (npc.IsInFaction(ddLibs.zadAnimatingFaction)) ; prevent breaking struggle animations
+                Debug.SendAnimationEvent(npc, "IdleForceDefaultState")
+            EndIf
         ElseIf (hasAnimation != animationIsApplied)
             If (enablePapyrusLogging)
                 Debug.Trace("[DDNF] Reevaluating animations of " + formIdAndName + ".")
@@ -1314,25 +1316,27 @@ Event OnUpdateGameTime()
                 ; escape system is enabled for this NPC
                 Float hoursSinceLastAttempt = (Utility.GetCurrentGameTime() - _lastEscapeAttemptGameTime) * 24.0
                 If (hoursSinceLastAttempt >= struggleFrequency)
-                    If (npc.IsPlayerTeammate())
-                        Int playerCombatState = npcTracker.Player.GetCombatState()
-                        Bool playerIsSneaking = npcTracker.Player.IsSneaking()
-                        If (playerCombatState > 0 || playerIsSneaking)
-                            If (npcTracker.EnablePapyrusLogging)
-                                If (playerCombatState > 0)
-                                    Debug.Trace("[DDNF] Escape system: Rescheduling attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ", is player teammate and player in combat.")
-                                Else
-                                    Debug.Trace("[DDNF] Escape system: Rescheduling attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ", is player teammate and player is sneaking.")
-                                EndIf
+                    Bool isPlayerTeammate = npc.IsPlayerTeammate()
+                    Bool playerInCombat = isPlayerTeammate && npcTracker.Player.GetCombatState() > 0
+                    Bool playerIsSneaking = isPlayerTeammate && npcTracker.Player.IsSneaking()
+                    Bool isOnMount = npc.IsOnMount()
+                    If (playerInCombat || playerIsSneaking || isOnMount)
+                        If (npcTracker.EnablePapyrusLogging)
+                            If (playerInCombat)
+                                Debug.Trace("[DDNF] Escape system: Rescheduling attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ", is player teammate and player in combat.")
+                            ElseIf (playerIsSneaking)
+                                Debug.Trace("[DDNF] Escape system: Rescheduling attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ", is player teammate and player is sneaking.")
+                            Else
+                                Debug.Trace("[DDNF] Escape system: Rescheduling attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ", is on mount.")
                             EndIf
-                            GlobalVariable timeScale = Game.GetFormFromFile(0x00003A, "Skyrim.esm") as GlobalVariable
-                            Float delay = Utility.RandomFloat(15, 30) * timeScale.GetValueInt() / 3600 ; X seconds real time
-                            If (delay < 0.03)
-                                delay = 0.03 ; RegisterForSingleUpdateGameTime can crash on very small values
-                            EndIf
-                            RegisterForSingleUpdateGameTime(delay)
-                            Return
                         EndIf
+                        GlobalVariable timeScale = Game.GetFormFromFile(0x00003A, "Skyrim.esm") as GlobalVariable
+                        Float delay = Utility.RandomFloat(15, 30) * timeScale.GetValueInt() / 3600 ; X seconds real time
+                        If (delay < 0.03)
+                            delay = 0.03 ; RegisterForSingleUpdateGameTime can crash on very small values
+                        EndIf
+                        RegisterForSingleUpdateGameTime(delay)
+                        Return
                     EndIf
                     If (_lastEscapeAttemptGameTime >= -24 && (hoursSinceLastAttempt - struggleFrequency) > 0.6) 
                         Utility.Wait(Utility.RandomFloat(4, 24)) ; wait some time to give scripts time after fast travel/wait/sleep and to introduce additonal jitter
@@ -1399,9 +1403,6 @@ Int Function PerformEscapeAttempt(Bool suppressNotifications)
     If (!GotoStateStruggling())
         Return -1 ; concurrent attempt running
     EndIf
-    npc.AddToFaction(npcTracker.Struggling)
-    npc.SetFactionRank(npcTracker.Struggling, 1)
-    npc.EvaluatePackage()
     Bool doNotStruggleIfChanceZeroPercent = !npcTracker.StruggleIfPointless && _attemptedEscapeAgainstRenderedDevices
     Int struggleLimit = npcTracker.AbortStrugglingAfterFailedDevices
     _attemptedEscapeAgainstRenderedDevices = true
@@ -1428,7 +1429,7 @@ Int Function PerformEscapeAttempt(Bool suppressNotifications)
             If (npcTracker.enablePapyrusLogging)
                 Debug.Trace("[DDNF] Escape attempt (" + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() +  "): Found device " + DDNF_Game.FormIdAsString(deviceToUnequip) + " " + deviceToUnequip.GetName() + ".")
             EndIf
-            Bool[] escapeResult = TryToEscapeDevice(deviceToUnequip, displayNotifications && !npcTracker.OnlyDisplayFinalSummaryMessage, doNotStruggleIfChanceZeroPercent)
+            Bool[] escapeResult = TryToEscapeDevice(deviceToUnequip, displayNotifications && !npcTracker.OnlyDisplayFinalSummaryMessage, doNotStruggleIfChanceZeroPercent, true)
             If (escapeResult[0])
                succeededDeviceCount += 1
                lastUnequippedDevice = deviceToUnequip
@@ -1483,7 +1484,7 @@ Int Function PerformEscapeAttempt(Bool suppressNotifications)
             EndIf
             If (escapeAttemptInterrupted && !(noChanceToEscape && doNotStruggleIfChanceZeroPercent))
                 Utility.Wait(1)
-                Debug.Notification(npc.GetDisplayName() + " stopped" + possessive + "attempts to escape" + possessive + "devices")
+                Debug.Notification(npc.GetDisplayName() + " stops" + possessive + "attempts to escape" + possessive + "devices")
             EndIf
             Utility.Wait(1)
             If (succeededDeviceCount == 0)
@@ -1819,7 +1820,7 @@ EndFunction
 ; Return values: Array with single false value on aborted attempt (quest item, blocked by another device, ...),
 ; otherwise array with the following values: 0 - success, 1 - chance was 0%
 ;
-Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool doNotStruggleIfChanceZeroPercent)
+Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool doNotStruggleIfChanceZeroPercent, Bool addToStrugglingFactionIfNecessary)
     ; check if escape attempt can be made
     Actor npc = GetReference() as Actor
     Armor renderedDevice = DDNF_NpcTracker.GetRenderedDevice(device, false)
@@ -1880,6 +1881,10 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool doNotStr
         If (npcTracker.EnablePapyrusLogging)
             Debug.Trace("[DDNF] " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " trying to escape " + DDNF_Game.FormIdAsString(device) + " " + device.GetName() + ": unlockChance=" + unlockChance + ", struggleChance=" + struggleChance + ".")
         EndIf
+        Faction strugglingFaction = None
+        If (addToStrugglingFactionIfNecessary)
+            strugglingFaction = npcTracker.Struggling
+        EndIf
         Bool useUnlockAction = unlockChance > 0 && unlockChance >= struggleChance
         If (useUnlockAction)
             If (unlockChance == 100 && !deviceIsHeavyBondage && !deviceIsBondageMittens)
@@ -1891,7 +1896,7 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool doNotStr
                         struggleMessage = npc.GetDisplayName() + " is unlocking" + possessive + equipScript.deviceName
                     EndIf
                 EndIf
-                success = PlayStruggleAnimation(ddLibs, equipScript, npc, struggleMessage, true) ; only play short animation
+                success = PlayStruggleAnimation(npcTracker, ddLibs, equipScript, npc, struggleMessage, strugglingFaction, true) ; only play short animation
             Else
                 String struggleMessage = ""
                 If (notifyPlayer)
@@ -1901,7 +1906,7 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool doNotStr
                         struggleMessage = npc.GetDisplayName() + " is strugging to unlock" + possessive + equipScript.deviceName
                     EndIf
                 EndIf
-                success = PlayStruggleAnimation(ddLibs, equipScript, npc, struggleMessage, false)
+                success = PlayStruggleAnimation(npcTracker, ddLibs, equipScript, npc, struggleMessage, strugglingFaction, false)
                 success = success && Utility.RandomFloat(0, 99.9) < unlockChance
             EndIf
         Else
@@ -1909,7 +1914,7 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool doNotStr
             If (notifyPlayer)
                 struggleMessage = npc.GetDisplayName() + " is strugging to escape" + possessive + equipScript.deviceName
             EndIf
-            success = PlayStruggleAnimation(ddLibs, equipScript, npc, struggleMessage, false)
+            success = PlayStruggleAnimation(npcTracker, ddLibs, equipScript, npc, struggleMessage, strugglingFaction, false)
             success = success && struggleChance > 0 && Utility.RandomFloat(0, 99.9) < struggleChance
         EndIf
         If (success)
@@ -1980,18 +1985,27 @@ Float Function Clamp(Float value, Float min, Float max) Global
     EndIf
 EndFunction
 
-Bool Function PlayStruggleAnimation(zadLibs ddLibs, zadEquipScript deviceInstance, Actor npc, String struggleMessage, Bool shortAnimationOnly)
-    String[] struggleArray = deviceInstance.SelectStruggleArray(npc)
-    Bool playAnimation = struggleArray.Length > 0 && IsParentCellAttached(npc) && IsStruggling()
+Bool Function PlayStruggleAnimation(DDNF_NpcTracker npcTracker, zadLibs ddLibs, zadEquipScript deviceInstance, Actor npc, String struggleMessage, Faction strugglingFaction, Bool shortAnimationOnly)
+    Bool addedToFaction = false
+    If (strugglingFaction != None && npc.GetFactionRank(strugglingFaction) < 1)
+        npc.AddToFaction(strugglingFaction)
+        npc.SetFactionRank(strugglingFaction, 1)
+        addedToFaction = true
+    EndIf
+    npc.EvaluatePackage()
+    String struggleAnimation = TryGetStruggleAnimation(ddLibs, deviceInstance, npc)
+    Bool playAnimation = struggleAnimation != "" && IsParentCellAttached(npc) && IsStruggling()
     Bool[] cameraState
-    Int waitCount = 3
-    While (waitCount > 0 && playAnimation && ddLibs.IsAnimating(npc))
+    Int waitCount = 4
+    While (addedToFaction && waitCount > 0 && playAnimation && ddLibs.IsAnimating(npc))
         Utility.Wait(1)
         playAnimation = playAnimation && IsParentCellAttached(npc) && IsStruggling()
         waitCount -= 1
     EndWhile
+    UnequipWeapons(npc, npcTracker.DummyWeapon)
     If (playAnimation)
-        cameraState = ddLibs.StartThirdPersonAnimation(npc, struggleArray[Utility.RandomInt(0, struggleArray.Length - 1)], true)
+        ddLibs.SetAnimating(npc, true)
+        Debug.SendAnimationEvent(npc, struggleAnimation)
     EndIf
     If (struggleMessage)
         Debug.Notification(struggleMessage)
@@ -2026,12 +2040,72 @@ Bool Function PlayStruggleAnimation(zadLibs ddLibs, zadEquipScript deviceInstanc
                 EndWhile
             EndIf
         EndIf
-        ddLibs.EndThirdPersonAnimation(npc, cameraState, true)
+        ddLibs.SetAnimating(npc, false)
+        Debug.SendAnimationEvent(npc, "IdleForceDefaultState")
     EndIf
     If (!shortAnimationOnly && IsParentCellAttached(npc))
         ddLibs.SexlabMoan(npc)
     EndIf
     Return IsStruggling()
+EndFunction
+
+String Function TryGetStruggleAnimation(zadLibs ddLibs, zadEquipScript deviceInstance, Actor npc) Global
+    String[] struggleArray = deviceInstance.SelectStruggleArray(npc)
+    If (struggleArray.Length > 0)
+        Return struggleArray[Utility.RandomInt(0, struggleArray.Length - 1)]
+    EndIf
+    ; try to select for device type in case struggle array is missing
+    ; this was created by looking at: meshes/actors/character/animations/DD/FNIS_DD_List.txt
+    If (deviceInstance.zad_DeviousDevice == ddLibs.zad_DeviousHeavyBondage)
+        If (deviceInstance.deviceRendered.HasKeyword(ddLibs.zad_DeviousElbowTie)) ; special case, has no hobbled anims
+            Int select = Utility.RandomInt(1, 3)
+            If (select == 1)
+                Return "DDElbowTie_struggleone"
+            ElseIf (select == 2)
+                Return "DDElbowTie_struggletwo"
+            Else
+                Return "DDElbowTie_strugglethree"
+            EndIf
+        EndIf
+        If (npc.GetItemCount(ddLibs.zad_DeviousHobbleSkirt) > 0 && npc.GetItemCount(ddLibs.zad_DeviousHobbleSkirtRelaxed) == 0)
+            If (deviceInstance.deviceRendered.HasKeyword(ddLibs.zad_DeviousArmbinderElbow))
+                Return "DDHobElbStruggle0" + Utility.RandomInt(1, 2)
+            ElseIf (deviceInstance.deviceRendered.HasKeyword(ddLibs.zad_DeviousCuffsFront))
+                Return "DDHobCuffsFrontStruggle0" + Utility.RandomInt(1, 2)
+            ElseIf (deviceInstance.deviceRendered.HasKeyword(ddLibs.zad_DeviousYoke))
+                Return "DDHobYokeStruggle0" + Utility.RandomInt(1, 2)
+            ElseIf (deviceInstance.deviceRendered.HasKeyword(ddLibs.zad_DeviousYokeBB))
+                Return "DDHobBBYokeStruggle0" + Utility.RandomInt(1, 2)
+            Else
+                Return "DDHobArmbStruggle0" + Utility.RandomInt(1, 2) ; fall back to armbinder
+            EndIf
+        Else
+            If (deviceInstance.deviceRendered.HasKeyword(ddLibs.zad_DeviousArmbinderElbow))
+                Return "DDRegElbStruggle0" + Utility.RandomInt(1, 5)
+            ElseIf (deviceInstance.deviceRendered.HasKeyword(ddLibs.zad_DeviousCuffsFront))
+                Return "DDRegCuffsFrontStruggle0" + Utility.RandomInt(2, 3)
+            ElseIf (deviceInstance.deviceRendered.HasKeyword(ddLibs.zad_DeviousYoke))
+                Return "DDRegYokeStruggle0" + Utility.RandomInt(1, 5)
+            ElseIf (deviceInstance.deviceRendered.HasKeyword(ddLibs.zad_DeviousYokeBB))
+                Return "DDRegBBYokeStruggle0" + Utility.RandomInt(1, 5)
+            Else
+                Return "DDRegArmbStruggle0" + Utility.RandomInt(1, 5) ; fall back to armbinder
+            EndIf
+        EndIf
+    ElseIf (deviceInstance.zad_DeviousDevice == ddLibs.zad_DeviousBlindfold)
+        Return "ft_struggle_blindfold_1"
+    ElseIf (deviceInstance.zad_DeviousDevice == ddLibs.zad_DeviousBelt || deviceInstance.zad_DeviousDevice == ddLibs.zad_DeviousPlug)
+        Return "FT_DD_Chastity_Struggle_" + Utility.RandomInt(1, 2) ; not originally meant for zad_DeviousPlug
+    ElseIf (deviceInstance.zad_DeviousDevice == ddLibs.zad_DeviousBoots)
+        Return "ft_struggle_boots_1"
+    ElseIf (deviceInstance.zad_DeviousDevice == ddLibs.zad_DeviousGag)
+        Return "ft_struggle_gag_1"
+    ElseIf (deviceInstance.zad_DeviousDevice == ddLibs.zad_DeviousGloves || deviceInstance.zad_DeviousDevice == ddLibs.zad_DeviousArmCuffs)
+        Return "ft_struggle_gloves_1" ; not originally meant for zad_DeviousArmCuffs
+    ElseIf (deviceInstance.zad_DeviousDevice == ddLibs.zad_DeviousHood)
+        Return "ft_struggle_head_1"
+    EndIf
+    Return "" ; no animation available    
 EndFunction
 
 
