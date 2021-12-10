@@ -147,3 +147,8 @@ Version 0.5 beta 7
 Varion 0.5 beta 8
 - Interrupt escape attempts when NPCs are hit
 - Prevent struggling NPCs from moving or using furniture
+
+Varion 0.5 RC 1
+- Change logic for unlock difficulty, use similar logic like DD does for player
+- Prevent struggling when NPC is being animated by sexlab
+- Internal changes allowing to recalculate helpless/not helples without full fixup

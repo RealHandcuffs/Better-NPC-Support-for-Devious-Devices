@@ -17,6 +17,7 @@ Bool _hasPanelGag
 Bool _isBound
 Bool _isGagged
 Bool _isBlindfold
+Bool _isUnableToKick
 
 ; variables tracking state of script
 ; there is also a script state, so this is not the whole picture
@@ -52,8 +53,8 @@ EndFunction
 
 Function HandleOptionsChanged(Bool useBoundCombat)
     Actor npc = GetReference() as Actor
-    If (npc != None && _useUnarmedCombatPackage && (_isHelpless && useBoundCombat || !_isHelpless && !useBoundCombat))
-        RegisterForFixup() ; helpless state might have changed
+    If (npc != None && _useUnarmedCombatPackage && UpdateHelplessState(npc, GetOwningQuest() as DDNF_NpcTracker, true))
+        npc.EvaluatePackage()
     EndIf
 EndFunction
 
@@ -77,6 +78,7 @@ Function ForceRefTo(ObjectReference akNewRef) ; override
         _isBound = false
         _isGagged = false
         _isBlindfold = false
+        _isUnableToKick = false
         _fixupHighPriority = false
         _ignoreNotEquippedInNextFixup = false
         _fixupLock = false
@@ -306,7 +308,7 @@ Event OnAnimationEvent(ObjectReference akSource, string asEventName)
                 npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
             EndIf
             If (_isHelpless)
-                Debug.SendAnimationEvent(npc, "IdleForceDefaultState")
+                Debug.SendAnimationEvent(npc, "IdleForceDefaultState") ; will prevent drawing weapons again
                 npc.SheatheWeapon()
             EndIf
         EndIf
@@ -589,8 +591,7 @@ Event OnUpdate()
     Bool isBlindfold = Math.LogicalAnd(renderedDevicesFlags, 8192) == 8192
     Bool hasAnimation = Math.LogicalAnd(renderedDevicesFlags, 16384) == 16384
     Bool useUnarmedCombatPackage = isBound || hasBondageMittens
-    Bool isHelpless = isBound && (isUnableToKick || !npcTracker.UseBoundCombat)
-    
+
     ; step two: unequip and reequip all rendered devices to restart the effects
     ; from this point on we need to abort and restart the fixup if something changes
     If (hasPanelGag != _hasPanelGag)
@@ -668,7 +669,7 @@ Event OnUpdate()
             EndIf
             ; modifying animations will cause a weird state where the NPC cannot draw weapons if they are currently drawn
             ; this can be reverted by changing the equipped weapons of the npc
-            Bool restoreWeaponAccess = !isHelpless && npc.IsWeaponDrawn()
+            Bool restoreWeaponAccess = npc.IsWeaponDrawn()
             boundCombat.EvaluateAA(npc) ; very expensive call
             If (restoreWeaponAccess)
                 ; restore ability to draw weapons by changing equipped weapons
@@ -687,11 +688,12 @@ Event OnUpdate()
     ; almost done, so do not abort and reschedule if another fixup is scheduled, just let things run their normal course instead
 
     ; step four: set state and adjust factions
+    _hasAnimation = hasAnimation
+    _hasPanelGag = hasPanelGag
     _isBound = isBound
     _isGagged = isGagged
-    _hasPanelGag = hasPanelGag
     _isBlindfold = isBlindfold
-    _hasAnimation = hasAnimation
+    _isUnableToKick = isUnableToKick
     Bool factionsModified = false
     If (useUnarmedCombatPackage)
         If (!_useUnarmedCombatPackage)
@@ -704,15 +706,7 @@ Event OnUpdate()
         _useUnarmedCombatPackage = false
         factionsModified = true
     EndIf
-    If (isHelpless)
-        If (!_isHelpless)
-            _isHelpless = true
-            npc.SetFactionRank(npcTracker.Helpless, 0)
-            factionsModified = true
-        EndIf
-    ElseIf (_isHelpless)
-        npc.RemoveFromFaction(npcTracker.Helpless)
-        _isHelpless = false
+    If (UpdateHelplessState(npc, npcTracker, false))
         factionsModified = true
     EndIf
     If (factionsModified)
@@ -738,6 +732,32 @@ Event OnUpdate()
         UnequipEquippedArmors(npc, npcTracker.WeaponDisplayArmors, true)
     EndIf
 EndEvent
+
+Bool Function UpdateHelplessState(Actor npc, DDNF_NpcTracker npcTracker, Bool updateWeponState) ; returns true if factions were modified
+    Bool isHelpless = _isBound && (_isUnableToKick || !npcTracker.UseBoundCombat)
+    If (isHelpless)
+        If (!_isHelpless)
+            _isHelpless = true
+            npc.SetFactionRank(npcTracker.Helpless, 0)
+            If (updateWeponState && npc.IsWeaponDrawn())
+                If (!UnequipWeapons(npc, npcTracker.DummyWeapon) && npc.GetItemCount(npcTracker.DummyWeapon) > 0)
+                    npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
+                EndIf
+                Debug.SendAnimationEvent(npc, "IdleForceDefaultState") ; will prevent drawing weapons again
+                npc.SheatheWeapon()
+            EndIf
+            Return true
+        EndIf
+    ElseIf (_isHelpless)
+        npc.RemoveFromFaction(npcTracker.Helpless)
+        _isHelpless = false
+        If (updateWeponState)
+            UnequipWeapons(npc)
+        EndIf
+        Return true
+    EndIf
+    Return false
+EndFunction
 
 
 ;
@@ -1318,20 +1338,23 @@ Event OnUpdateGameTime()
                 If (hoursSinceLastAttempt >= struggleFrequency)
                     Bool isPlayerTeammate = npc.IsPlayerTeammate()
                     Bool playerInCombat = isPlayerTeammate && npcTracker.Player.GetCombatState() > 0
-                    Bool playerIsSneaking = isPlayerTeammate && npcTracker.Player.IsSneaking()
-                    Bool isOnMount = npc.IsOnMount()
-                    If (playerInCombat || playerIsSneaking || isOnMount)
+                    Bool playerIsSneaking = isPlayerTeammate && !playerInCombat && npcTracker.Player.IsSneaking()
+                    Bool isOnMount = !playerInCombat && !playerIsSneaking && npc.IsOnMount()
+                    Bool isSexlabAnimated = !playerInCombat && !playerIsSneaking && !isOnMount && npc.IsInFaction(npcTracker.ddLibs.Sexlab.AnimatingFaction)
+                    If (playerInCombat || playerIsSneaking || isOnMount || isSexlabAnimated)
                         If (npcTracker.EnablePapyrusLogging)
                             If (playerInCombat)
                                 Debug.Trace("[DDNF] Escape system: Rescheduling attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ", is player teammate and player in combat.")
                             ElseIf (playerIsSneaking)
                                 Debug.Trace("[DDNF] Escape system: Rescheduling attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ", is player teammate and player is sneaking.")
-                            Else
+                            ElseIf (isOnMount)
                                 Debug.Trace("[DDNF] Escape system: Rescheduling attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ", is on mount.")
+                            Else
+                                Debug.Trace("[DDNF] Escape system: Rescheduling attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ", is animated by sexlab.")
                             EndIf
                         EndIf
                         GlobalVariable timeScale = Game.GetFormFromFile(0x00003A, "Skyrim.esm") as GlobalVariable
-                        Float delay = Utility.RandomFloat(15, 30) * timeScale.GetValueInt() / 3600 ; X seconds real time
+                        Float delay = Utility.RandomFloat(15, 45) * timeScale.GetValueInt() / 3600 ; X seconds real time
                         If (delay < 0.03)
                             delay = 0.03 ; RegisterForSingleUpdateGameTime can crash on very small values
                         EndIf
@@ -1851,7 +1874,17 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool doNotStr
     Float difficultyModifier = equipScript.CalculateDifficultyModifier(true)
     Float lockAccessChance = 100
     If (equipScript.LockAccessDifficulty > 0)
-        lockAccessChance = Clamp((100 - equipScript.LockAccessDifficulty) * difficultyModifier, 0, 100)
+        Float moddedLockAccessDifficulty = equipScript.LockAccessDifficulty * (2 - difficultyModifier) ; difficulty modifier is (1 + bonus), revert to (1 - bonus) for access difficulty
+        If (moddedLockAccessDifficulty > 95 && equipScript.LockAccessDifficulty < 100)
+            Float maxAllowedDifficulty = 95
+            If (equipScript.LockAccessDifficulty > maxAllowedDifficulty)
+                maxAllowedDifficulty = equipScript.LockAccessDifficulty
+            EndIf
+            if (moddedLockAccessDifficulty > maxAllowedDifficulty)
+                moddedLockAccessDifficulty = maxAllowedDifficulty ; ensure lock access difficulty stays below 100 if original author intended it to be possible
+            EndIf
+        EndIf
+        lockAccessChance = Clamp(100 - moddedLockAccessDifficulty, 0, 100)
     EndIf
     Float unlockChance = 0
     If (!handsBlocked && !deviceIsQuestDevice && lockAccessChance > 0 && (equipScript.deviceKey == None || npc.GetItemCount(equipScript.deviceKey) >= equipScript.NumberOfKeysNeeded))
@@ -1877,6 +1910,7 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool doNotStr
         If (npcTracker.EnablePapyrusLogging)
             Debug.Trace("[DDNF] " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " not struggling to escape " + DDNF_Game.FormIdAsString(device) + " " + device.GetName() + " because chance is 0%.")
         EndIf
+        success = false
     Else
         If (npcTracker.EnablePapyrusLogging)
             Debug.Trace("[DDNF] " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " trying to escape " + DDNF_Game.FormIdAsString(device) + " " + device.GetName() + ": unlockChance=" + unlockChance + ", struggleChance=" + struggleChance + ".")
@@ -1886,7 +1920,9 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool doNotStr
             strugglingFaction = npcTracker.Struggling
         EndIf
         Bool useUnlockAction = unlockChance > 0 && unlockChance >= struggleChance
+        Float successChance
         If (useUnlockAction)
+            successChance = unlockChance
             If (unlockChance == 100 && !deviceIsHeavyBondage && !deviceIsBondageMittens)
                 String struggleMessage = ""
                 If (notifyPlayer)
@@ -1907,15 +1943,23 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool doNotStr
                     EndIf
                 EndIf
                 success = PlayStruggleAnimation(npcTracker, ddLibs, equipScript, npc, struggleMessage, strugglingFaction, false)
-                success = success && Utility.RandomFloat(0, 99.9) < unlockChance
             EndIf
         Else
+            successChance = struggleChance
             String struggleMessage = ""
             If (notifyPlayer)
                 struggleMessage = npc.GetDisplayName() + " is strugging to escape" + possessive + equipScript.deviceName
             EndIf
             success = PlayStruggleAnimation(npcTracker, ddLibs, equipScript, npc, struggleMessage, strugglingFaction, false)
-            success = success && struggleChance > 0 && Utility.RandomFloat(0, 99.9) < struggleChance
+        EndIf
+        Float randomRollResult = -1 ; special value for "no roll was made"
+        If (success && successChance < 100)
+            If (successChance <= 0)
+                success = false
+            Else
+                randomRollResult = Utility.RandomFloat(0, 99.9)
+                success = randomRollResult < successChance
+            EndIf
         EndIf
         If (success)
             Bool recheckConditions = CheckIfUnequipPossible(npc, device, renderedDevice, ddLibs, true, false)
@@ -1944,7 +1988,11 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool doNotStr
                 EndIf
             EndIf
             If (npcTracker.EnablePapyrusLogging)
-                Debug.Trace("[DDNF] " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " escaped " + DDNF_Game.FormIdAsString(device) + " " + device.GetName() + ".")
+                If (randomRollResult >= 0)
+                    Debug.Trace("[DDNF] " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " escaped " + DDNF_Game.FormIdAsString(device) + " " + device.GetName() + " (" + randomRollResult + " < " + successChance +").")
+                Else
+                    Debug.Trace("[DDNF] " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " escaped " + DDNF_Game.FormIdAsString(device) + " " + device.GetName() + ".")
+                EndIf
             EndIf
         Else
             If (notifyPlayer && IsStruggling()) ; do not notify if interrupdted
@@ -1961,7 +2009,11 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool doNotStr
                 EndIf
             EndIf
             If (npcTracker.EnablePapyrusLogging)
-                Debug.Trace("[DDNF] " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " failed to escape " + DDNF_Game.FormIdAsString(device) + " " + device.GetName() + ".")
+                If (randomRollResult >= 0)
+                    Debug.Trace("[DDNF] " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " failed to escape " + DDNF_Game.FormIdAsString(device) + " " + device.GetName() + " (" + randomRollResult + " >= " + successChance +").")
+                Else
+                    Debug.Trace("[DDNF] " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " failed to escape " + DDNF_Game.FormIdAsString(device) + " " + device.GetName() + ".")
+                EndIf
             EndIf
         EndIf
     EndIf
@@ -1988,7 +2040,6 @@ EndFunction
 Bool Function PlayStruggleAnimation(DDNF_NpcTracker npcTracker, zadLibs ddLibs, zadEquipScript deviceInstance, Actor npc, String struggleMessage, Faction strugglingFaction, Bool shortAnimationOnly)
     Bool addedToFaction = false
     If (strugglingFaction != None && npc.GetFactionRank(strugglingFaction) < 1)
-        npc.AddToFaction(strugglingFaction)
         npc.SetFactionRank(strugglingFaction, 1)
         addedToFaction = true
     EndIf
