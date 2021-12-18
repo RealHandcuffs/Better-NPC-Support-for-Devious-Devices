@@ -152,3 +152,6 @@ Varion 0.5 RC 1
 - Change logic for unlock difficulty, use similar logic like DD does for player
 - Prevent struggling when NPC is being animated by sexlab
 - Internal changes allowing to recalculate helpless/not helples without full fixup
+
+Varion 0.5 RC 2
+- Small performance optimization (override DD bound NPC sandbox packages with custom script to prevent unnecessary EvaluateAA call)
