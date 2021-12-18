@@ -155,3 +155,4 @@ Varion 0.5 RC 1
 
 Varion 0.5 RC 2
 - Small performance optimization (override DD bound NPC sandbox packages with custom script to prevent unnecessary EvaluateAA call)
+- Clean masters of esp
