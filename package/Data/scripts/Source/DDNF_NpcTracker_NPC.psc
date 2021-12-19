@@ -202,6 +202,17 @@ Function HandleItemAddedRemoved(Form akBaseItem, ObjectReference akSourceDestCon
         Armor maybeArmor = akBaseItem as Armor
         Float delayOverride = -1
         If (maybeArmor != None)
+            If (npcTracker.RestoreOriginalOutfit)
+                ActorBase npcBase = npc.GetActorBase()
+                Outfit originalOutfit = StorageUtil.GetFormValue(npcBase, "zad_OriginalOutfit") as Outfit
+                If (originalOutfit != None)
+                    StorageUtil.UnSetFormValue(npcBase, "zad_OriginalOutfit")
+                    If (npcTracker.EnablePapyrusLogging)
+                        Debug.Trace("[DDNF] Restoring original outfit of " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ".")
+                    EndIf
+                    npc.SetOutfit(originalOutfit, false)
+                EndIf
+            EndIf
             Bool isInventoryDevice = DDNF_NpcTracker.GetRenderedDevice(maybeArmor, false) != None
             If (isInventoryDevice || DDNF_NpcTracker.TryGetInventoryDevice(maybeArmor) != None || maybeArmor.HasKeyword(npcTracker.DDLibs.zad_Lockable) || maybeArmor.HasKeyword(npcTracker.DDLibs.zad_DeviousPlug))
                 ; a device has been added or removed, we need to rescan for devices
