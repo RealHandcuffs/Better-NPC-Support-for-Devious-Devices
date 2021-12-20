@@ -205,12 +205,12 @@ Function HandleItemAddedRemoved(Form akBaseItem, ObjectReference akSourceDestCon
             If (npcTracker.RestoreOriginalOutfit)
                 ActorBase npcBase = npc.GetActorBase()
                 Outfit originalOutfit = StorageUtil.GetFormValue(npcBase, "zad_OriginalOutfit") as Outfit
-                If (originalOutfit != None)
+                If (originalOutfit != None && npcBase.GetOutfit() == npcTracker.DDLibs.zadEmptyOutfit) ; check current outfit to prevent race condition
                     StorageUtil.UnSetFormValue(npcBase, "zad_OriginalOutfit")
-                    If (npcTracker.EnablePapyrusLogging)
-                        Debug.Trace("[DDNF] Restoring original outfit of " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ".")
-                    EndIf
                     npc.SetOutfit(originalOutfit, false)
+                    If (npcTracker.EnablePapyrusLogging)
+                        Debug.Trace("[DDNF] Restored original outfit of " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ".")
+                    EndIf
                 EndIf
             EndIf
             Bool isInventoryDevice = DDNF_NpcTracker.GetRenderedDevice(maybeArmor, false) != None
@@ -497,12 +497,12 @@ Event OnUpdate()
     If (npcTracker.RestoreOriginalOutfit)
         ActorBase npcBase = npc.GetActorBase()
         Outfit originalOutfit = StorageUtil.GetFormValue(npcBase, "zad_OriginalOutfit") as Outfit
-        If (originalOutfit != None)
+        If (originalOutfit != None && npcBase.GetOutfit() == npcTracker.DDLibs.zadEmptyOutfit) ; check current outfit to prevent race condition
             StorageUtil.UnSetFormValue(npcBase, "zad_OriginalOutfit")
-            If (enablePapyrusLogging)
-                Debug.Trace("[DDNF] Restoring original outfit of " + formIdAndName + " and rescheduling fixup.")
-            EndIf
             npc.SetOutfit(originalOutfit, false)
+            If (enablePapyrusLogging)
+                Debug.Trace("[DDNF] Restored original outfit of " + formIdAndName + " and rescheduling fixup.")
+            EndIf
             _fixupLock = false
             RegisterForFixup()
             Return
