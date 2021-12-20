@@ -3,8 +3,8 @@
 ;
 Scriptname DDNF_DLC1Shim
 
-BOol Function IsSerana(Actor maybeSerana) Global ; maybeSerana must be actor defined in Dawnguard.esm
-     Return DDNF_Game.GetModInternalFormId(maybeSerana.GetFormID()) == 0x002B74
+Bool Function IsSerana(Int maybeSeranaFormId) Global ; maybeSeranaFormId must be formId of actor defined in Dawnguard.esm
+     Return DDNF_Game.GetModInternalFormId(maybeSeranaFormId) == 0x002B74
 EndFunction
 
 Function KickSeranaFromSandboxPackage(Actor serana) Global
@@ -25,4 +25,8 @@ Bool Function IsSeranaCurrentlyFollowing(Actor serana) Global
     Form mentalModel = Game.GetFormFromFile(0x002B6E, "Dawnguard.esm") ; DLC1NPCMentalModel
     DLC1_NPCMentalModelScript mm = mentalModel as DLC1_NPCMentalModelScript
     Return mm.IsFollowing
+EndFunction
+
+Function AddMassiveRaces(FormList list) Global
+    list.AddForm(Game.GetFormFromFile(0x015c34, "Dawnguard.esm")) ; DLC1LD_ForgemasterRace
 EndFunction

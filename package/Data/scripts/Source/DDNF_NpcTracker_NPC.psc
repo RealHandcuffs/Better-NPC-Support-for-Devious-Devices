@@ -18,6 +18,7 @@ Bool _isBound
 Bool _isGagged
 Bool _isBlindfold
 Bool _isUnableToKick
+Bool _evadeCombat
 
 ; variables tracking state of script
 ; there is also a script state, so this is not the whole picture
@@ -54,6 +55,7 @@ EndFunction
 Function HandleOptionsChanged(Bool useBoundCombat)
     Actor npc = GetReference() as Actor
     If (npc != None && _useUnarmedCombatPackage && UpdateHelplessState(npc, GetOwningQuest() as DDNF_NpcTracker, true))
+        UpdateEvadeCombat(npc, GetOwningQuest() as DDNF_NpcTracker)
         npc.EvaluatePackage()
     EndIf
 EndFunction
@@ -80,6 +82,7 @@ Function ForceRefTo(ObjectReference akNewRef) ; override
         _isGagged = false
         _isBlindfold = false
         _isUnableToKick = false
+        _evadeCombat = false
         _fixupHighPriority = false
         _ignoreNotEquippedInNextFixup = false
         _waitingForFixup = false
@@ -137,6 +140,9 @@ Function Clear() ; override
             If (_useUnarmedCombatPackage)
                 UnregisterForAnimationEvent(npc, "BeginWeaponDraw")
                 npc.RemoveFromFaction(npcTracker.UnarmedCombatants)
+                If (_evadeCombat)
+                    npc.RemoveFromFaction(npcTracker.EvadeCombat)
+                EndIf
                 If (_isHelpless)
                     npc.RemoveFromFaction(npcTracker.Helpless)
                     ; restore ability to draw weapons by changing equipped weapons
@@ -306,8 +312,13 @@ Event OnCombatStateChanged(Actor akTarget, Int aeCombatState)
             DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
             If (aeCombatState == 1)
                 UnequipWeapons(npc) ; combat override package will make sure NPC is only using unarmed combat
-            ElseIf (!UnequipWeapons(npc, npcTracker.DummyWeapon) && npc.GetItemCount(npcTracker.DummyWeapon) > 0)
-                npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
+            Else
+                If (!UnequipWeapons(npc, npcTracker.DummyWeapon) && npc.GetItemCount(npcTracker.DummyWeapon) > 0)
+                    npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
+                EndIf
+                If (aeCombatState == 0)
+                    UpdateEvadeCombat(npc, npcTracker) ; no need to EvaluatePackage() because we are out of combat
+                EndIf
             EndIf
         EndIf
     EndIf
@@ -351,7 +362,8 @@ Event OnPackageStart(Package akNewPackage)
                     If (npcTracker.EnablePapyrusLogging)
                         Debug.Trace("[DDNF] Trying to kick " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " out of sandboxing package.")
                     EndIf
-                    If (DDNF_Game.GetModName(npc) == "Dawnguard.esm" && DDNF_DLC1Shim.IsSerana(npc))
+                    Int npcFormId = npc.GetFormID()
+                    If (DDNF_Game.GetModId(npcFormId) == npcTracker.DawnguardModId && DDNF_DLC1Shim.IsSerana(npcFormId))
                         ; Serana's AI is different than that of any other follower, so the DD npc slots are not working
                         DDNF_DLC1Shim.KickSeranaFromSandboxPackage(npc)
                     Else
@@ -366,8 +378,50 @@ EndEvent
 
 
 Event OnHit(ObjectReference akAggressor, Form akSource, Projectile akProjectile, Bool abPowerAttack, Bool abSneakAttack, Bool abBashAttack, Bool abHitBlocked)
-    ; do nothing in base state
+    HandleHitFrom(akAggressor as Actor, akSource)
 EndEvent
+
+Function HandleHitFrom(Actor attacker, Form akSource)
+    If (_evadeCombat && attacker != None)
+        Actor npc = GetReference() as Actor
+        If (npc != None && npc.IsHostileToActor(attacker) && IsHostileHitSource(akSource))
+            DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
+            If (!attacker.HasKeyword(npcTracker.ActorTypeDragon) && !npcTracker.MassiveRaces.HasForm(attacker.GetRace())) ; do not start unarmed combat with dragons, giants, mammoths or dwarven centurions
+                If (_evadeCombat) ; double-check to catch race condition
+                    _evadeCombat = false
+                    npc.RemoveFromFaction(npcTracker.EvadeCombat)
+                    npc.EvaluatePackage()
+                EndIf
+            EndIf
+        EndIf
+    EndIf
+EndFunction
+
+Bool Function IsHostileHitSource(Form akSource) Global
+    If (akSource != None)
+        If ((akSource as Weapon) != None)
+            Return true
+        EndIf
+        Spell akSpell = akSource as Spell
+        If (akSpell != None)
+            Return akSpell.IsHostile()
+        EndIf
+        Ingredient akIngredient = akSource as Ingredient
+        If (akIngredient != None)
+            Return akIngredient.IsHostile()
+        EndIf
+        Potion akPotion = akSource as Potion
+        If (akPotion != None)
+            Return akPotion.IsHostile()
+        EndIf
+        Enchantment akEnchantment = akSource as Enchantment
+        If (akEnchantment != None)
+            return akEnchantment.IsHostile()
+        EndIf
+    EndIf
+    Return True ; assume hostile by default
+EndFunction
+
 
 ; state functions
 
@@ -437,14 +491,24 @@ EndState
 State AliasOccupiedStruggling
 
 Event OnHit(ObjectReference akAggressor, Form akSource, Projectile akProjectile, Bool abPowerAttack, Bool abSneakAttack, Bool abBashAttack, Bool abHitBlocked)
-    GotoStateNotStruggling()
-    DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
-    If (npcTracker.EnablePapyrusLogging)
+    HandleHitFrom(akAggressor as Actor, akSource)
+    Bool abortStruggling = IsHostileHitSource(akSource)
+    If (!abortStruggling && (akSource as Spell) != None)
+        Utility.Wait(0.25) ; wait and check for calm effect instead of checking spell as spell might fail
         Actor npc = GetReference() as Actor
-        If (akAggressor == None)
-            Debug.Trace("[DDNF] Interrupting escape attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " because of hit.")
-        Else
-            Debug.Trace("[DDNF] Interrupting escape attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " because of hit from " + DDNF_Game.FormIdAsString(akAggressor) + " " + akAggressor.GetDisplayName() + ".")
+        DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
+        abortStruggling = npc.HasMagicEffectWithKeyword(npcTracker.MagicInfluenceCharm)
+    EndIf
+    If (abortStruggling)
+        GotoStateNotStruggling()
+        DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
+        If (npcTracker.EnablePapyrusLogging)
+            Actor npc = GetReference() as Actor
+            If (akAggressor == None)
+                Debug.Trace("[DDNF] Interrupting escape attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " because of hit.")
+            Else
+                Debug.Trace("[DDNF] Interrupting escape attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " because of hit from " + DDNF_Game.FormIdAsString(akAggressor) + " " + akAggressor.GetDisplayName() + ".")
+            EndIf
         EndIf
     EndIf
 EndEvent
@@ -734,6 +798,9 @@ Event OnUpdate()
     If (UpdateHelplessState(npc, npcTracker, false))
         factionsModified = true
     EndIf
+    If (UpdateEvadeCombat(npc, npcTracker))
+        factionsModified = true
+    EndIf
     If (factionsModified)
         npc.EvaluatePackage()
     EndIf
@@ -781,6 +848,28 @@ Bool Function UpdateHelplessState(Actor npc, DDNF_NpcTracker npcTracker, Bool up
         If (updateWeponState)
             UnequipWeapons(npc)
         EndIf
+        Return true
+    EndIf
+    Return false
+EndFunction
+
+Bool Function UpdateEvadeCombat(Actor npc, DDNF_NpcTracker npcTracker)
+    Bool evadeCombat = _useUnarmedCombatPackage && !_isHelpless ; try to evade combat when forced to use unarmed combat
+    If (evadeCombat && IsCurrentFollower(npc, npcTracker))
+        ; but do not try to evade combat when following player and player is forced to use unarmed combat, too
+        If (npcTracker.Player.WornHasKeyword(npcTracker.ddLibs.zad_DeviousHeavyBondage) || npcTracker.Player.WornHasKeyword(npcTracker.ddLibs.zad_DeviousBondageMittens))
+            evadeCombat = false
+        EndIf
+    EndIf
+    If (evadeCombat)
+        If (!_evadeCombat)
+            _evadeCombat = true
+            npc.SetFactionRank(npcTracker.EvadeCombat, 0)
+            Return true
+        EndIf
+    ElseIf (_evadeCombat)
+        _evadeCombat = false
+        npc.RemoveFromFaction(npcTracker.EvadeCombat)
         Return true
     EndIf
     Return false
@@ -1368,7 +1457,8 @@ Event OnUpdateGameTime()
                     Bool playerIsSneaking = isPlayerTeammate && !playerInCombat && npcTracker.Player.IsSneaking()
                     Bool isOnMount = !playerInCombat && !playerIsSneaking && npc.IsOnMount()
                     Bool isSexlabAnimated = !playerInCombat && !playerIsSneaking && !isOnMount && npc.IsInFaction(npcTracker.ddLibs.Sexlab.AnimatingFaction)
-                    If (playerInCombat || playerIsSneaking || isOnMount || isSexlabAnimated)
+                    Bool isCharmed = !playerInCombat && !playerIsSneaking && !isOnMount && !isSexlabAnimated && npc.HasMagicEffectWithKeyword(npcTracker.MagicInfluenceCharm)
+                    If (playerInCombat || playerIsSneaking || isOnMount || isSexlabAnimated || isCharmed)
                         If (npcTracker.EnablePapyrusLogging)
                             If (playerInCombat)
                                 Debug.Trace("[DDNF] Escape system: Rescheduling attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ", is player teammate and player in combat.")
@@ -1376,8 +1466,10 @@ Event OnUpdateGameTime()
                                 Debug.Trace("[DDNF] Escape system: Rescheduling attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ", is player teammate and player is sneaking.")
                             ElseIf (isOnMount)
                                 Debug.Trace("[DDNF] Escape system: Rescheduling attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ", is on mount.")
-                            Else
+                            ElseIf (isSexlabAnimated)
                                 Debug.Trace("[DDNF] Escape system: Rescheduling attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ", is animated by sexlab.")
+                            Else
+                                Debug.Trace("[DDNF] Escape system: Rescheduling attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ", is charmed.")
                             EndIf
                         EndIf
                         GlobalVariable timeScale = Game.GetFormFromFile(0x00003A, "Skyrim.esm") as GlobalVariable

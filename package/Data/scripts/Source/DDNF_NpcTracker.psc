@@ -9,10 +9,14 @@ DDNF_MainQuest Property MainQuest Auto
 Actor Property Player Auto
 Faction Property CurrentFollowerFaction Auto
 Faction Property DeviceTargets Auto
+Faction Property EvadeCombat Auto
 Faction Property Helpless Auto
 Faction Property Struggling Auto
 Faction Property UnarmedCombatants Auto
+FormList Property MassiveRaces Auto
 FormList Property WeaponDisplayArmors Auto
+Keyword Property ActorTypeDragon Auto
+Keyword Property MagicInfluenceCharm Auto
 Keyword Property TrackingKeyword Auto
 Message Property ManipulatePanelGagInstead Auto
 Package Property FollowerPackageTemplate Auto
@@ -101,6 +105,9 @@ Function HandleGameLoaded(Bool upgrade)
     RefreshWeaponDisplayArmors()
     DeviousDevicesIntegrationModId = Game.GetModByName("Devious Devices - Integration.esm")
     DawnguardModId = Game.GetModByName("Dawnguard.esm")
+    If (DawnguardModId != 255)
+        DDNF_DLC1Shim.AddMassiveRaces(MassiveRaces)
+    EndIf
     DeviouslyCursedLootModId = Game.GetModByName("Deviously Cursed Loot.esp")
     DeviousContraptionsModId = Game.GetModByName("Devious Devices - Contraptions.esm")
     ; notify all alias scripts
@@ -250,9 +257,24 @@ EndFunction
 
 
 ;
-; Called when a device is equipped on a NPC.
+; Called when a device is equipped on a NPC or the player.
 ;
 Function HandleDeviceEquipped(Actor akActor, Armor inventoryDevice, Bool checkForNotEquippedBug)
+    If (akActor == Player)
+        If (DDLibs.GetDeviceKeyword(inventoryDevice) == ddLibs.zad_DeviousHeavyBondage)
+            Int index = 0
+            Alias[] aliases = GetAliases()
+            While (index < aliases.Length)
+                DDNF_NpcTracker_NPC tracker = GetAliases()[index] as DDNF_NpcTracker_NPC
+                Actor npc = tracker.GetReference() as Actor
+                If (npc && tracker.UpdateEvadeCombat(npc, Self))
+                    npc.EvaluatePackage()
+                EndIf
+                index += 1
+            EndWhile
+        EndIf
+        Return
+    EndIf
     Int index = GetNpcs().Find(akActor)
     If (index < 0)
         index = Add(akActor)
@@ -288,6 +310,27 @@ Function HandleDeviceEquipped(Actor akActor, Armor inventoryDevice, Bool checkFo
                 EndIf
                 DDLibs.LockDevice(akActor, inventoryDevice)
             EndIf
+        EndIf
+    EndIf
+EndFunction
+
+;
+; Called when a device is unequipped from a NPC or the player.
+;
+Function HandleDeviceRemoved(Actor akActor, Armor inventoryDevice)
+    If (akActor == Player)
+        If (DDLibs.GetDeviceKeyword(inventoryDevice) == ddLibs.zad_DeviousHeavyBondage)
+            Utility.WaitMenuMode(2) ; because we get the event before the device is actually removed
+            Int index = 0
+            Alias[] aliases = GetAliases()
+            While (index < aliases.Length)
+                DDNF_NpcTracker_NPC tracker = GetAliases()[index] as DDNF_NpcTracker_NPC
+                Actor npc = tracker.GetReference() as Actor
+                If (npc && tracker.UpdateEvadeCombat(npc, Self))
+                    npc.EvaluatePackage()
+                EndIf
+                index += 1
+            EndWhile
         EndIf
     EndIf
 EndFunction

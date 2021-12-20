@@ -48,6 +48,7 @@ Function HandleGameLoaded(Bool upgrade)
     EndIf
     ; refresh event registrations
     RegisterForModEvent("DDI_DeviceEquipped", "OnDDI_DeviceEquipped")
+    RegisterForModEvent("DDI_DeviceRemoved", "OnDDI_DeviceRemoved")
     ; queue scan "soon"
     RegisterForSingleUpdate(1.0)
 EndFunction
@@ -61,8 +62,15 @@ EndFunction
 
 Event OnDDI_DeviceEquipped(Form inventoryDevice, Form deviceKeyword, Form akActor)
     ; DDi event when device is equipped
-    If (NpcTracker.IsRunning() && akActor != NpcTracker.Player)
+    If (NpcTracker.IsRunning())
         NpcTracker.HandleDeviceEquipped(akActor as Actor, inventoryDevice as Armor, false)
+    EndIf
+EndEvent
+
+Event OnDDI_DeviceRemoved(Form inventoryDevice, Form deviceKeyword, Form akActor)
+    ; DDi event when device is unequipped
+    If (NpcTracker.IsRunning())
+        NpcTracker.HandleDeviceRemoved(akActor as Actor, inventoryDevice as Armor)
     EndIf
 EndEvent
 

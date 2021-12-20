@@ -168,3 +168,8 @@ Version 0.5
 
 Version 0.5.1
 - Hotfix: Tighten code to reduce chance of race condition and implement additional code to mitigate the problem
+
+Version 0.6 TODO
+- Make bound NPCs behave defensively even if bound combat is enabled
+- Do not make bound NPCs behave defensively if they are followers and player is bound, too
+- Allow non-followers to use bound combat, too, if it is enabled in Devious Devices settings
