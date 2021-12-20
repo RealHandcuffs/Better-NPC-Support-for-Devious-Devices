@@ -90,7 +90,6 @@ EndFunction
 
 Function HandleGameLoaded(Bool upgrade)
     If (upgrade)
-        IsEnabled = IsRunning()
         ; stop further fixups until the upgrade is done
         UnregisterForUpdate()
         _attemptedFixupsInPeriod = 9999
@@ -124,6 +123,7 @@ Function HandleGameLoaded(Bool upgrade)
     ; done
     If (upgrade)
         _attemptedFixupsInPeriod = 0
+        IsEnabled = IsRunning()
     EndIf
 EndFunction
 

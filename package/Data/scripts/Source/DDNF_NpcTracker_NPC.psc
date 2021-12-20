@@ -562,11 +562,14 @@ Event OnUpdate()
         GotoState("AliasEmpty") ; may not be necessary
         Return
     EndIf
+    DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
+    If (!npcTracker.IsEnabled)
+        Return ; abort, concurrent update/start/stop
+    EndIf
     If (!IsParentCellAttached(npc)) ; even if _fixupLock is true
         Clear()
         Return
     EndIf
-    DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
     String formIdAndName = ""
     Bool enablePapyrusLogging = npcTracker.EnablePapyrusLogging
     If (enablePapyrusLogging)
@@ -1471,7 +1474,7 @@ EndFunction
 Event OnUpdateGameTime()
     Actor npc = GetReference() as Actor
     DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
-    If (npc != None)
+    If (npc != None && npcTracker.IsEnabled)
         Bool registerForUpdate = true
         If (npcTracker.EscapeSystemEnabled)
             Int struggleFrequency

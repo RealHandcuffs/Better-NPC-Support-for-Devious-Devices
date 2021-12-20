@@ -31,11 +31,12 @@ Event OnPlayerLoadGame()
     If (_lastVersion == Version)
         HandleGameLoaded(false)
     Else
+        MainQuest.NpcTracker.IsEnabled = false ; do this as early as possible
         Debug.Notification("[BNSfDD] Upgrading to: " + Version)
         If (enablePapyrusLogging)
             Debug.Trace("[DDNF] Upgrading from version " + _lastVersion + " to version " + Version + ".")
         EndIf
-        HandleGameLoaded(true)
+        HandleGameLoaded(true) ; will enable NpcTracker again as a side effect
         _lastVersion = Version
         If (enablePapyrusLogging)
             Debug.Trace("[DDNF] Upgrade finished.")
