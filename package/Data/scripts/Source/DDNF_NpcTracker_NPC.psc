@@ -726,7 +726,9 @@ Event OnUpdate()
     _lastFixupRealTime = Utility.GetCurrentRealTime()
     If (_renderedDevicesFlags >= 0 && _renderedDevices[0] == None)
         ; no devices found, reschedule scan to remove NPC
-        Debug.Trace("[DDNF] No devices found for " + formIdAndName + ", rescheduling another fixup in 8 seconds.")
+        If (enablePapyrusLogging)
+            Debug.Trace("[DDNF] No devices found for " + formIdAndName + ", rescheduling another fixup in 8 seconds.")
+        EndIf
         RegisterForFixup(8.0)
     EndIf
     _fixupLock = false
