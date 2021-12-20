@@ -13,11 +13,12 @@ Faction Property EvadeCombat Auto
 Faction Property Helpless Auto
 Faction Property Struggling Auto
 Faction Property UnarmedCombatants Auto
-FormList Property MassiveRaces Auto
+FormList Property MassiveRacesList Auto
 FormList Property WeaponDisplayArmors Auto
 Keyword Property ActorTypeDragon Auto
 Keyword Property MagicInfluenceCharm Auto
 Keyword Property TrackingKeyword Auto
+Keyword Property VendorItemArrow Auto
 Message Property ManipulatePanelGagInstead Auto
 Package Property FollowerPackageTemplate Auto
 Package Property Sandbox Auto
@@ -106,7 +107,7 @@ Function HandleGameLoaded(Bool upgrade)
     DeviousDevicesIntegrationModId = Game.GetModByName("Devious Devices - Integration.esm")
     DawnguardModId = Game.GetModByName("Dawnguard.esm")
     If (DawnguardModId != 255)
-        DDNF_DLC1Shim.AddMassiveRaces(MassiveRaces)
+        DDNF_DLC1Shim.AddMassiveRaces(MassiveRacesList)
     EndIf
     DeviouslyCursedLootModId = Game.GetModByName("Deviously Cursed Loot.esp")
     DeviousContraptionsModId = Game.GetModByName("Devious Devices - Contraptions.esm")

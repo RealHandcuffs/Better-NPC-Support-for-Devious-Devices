@@ -249,6 +249,14 @@ EndFunction
 Event OnObjectEquipped(Form akBaseObject, ObjectReference akReference)
     If (_useUnarmedCombatPackage && !_fixupLock)
         DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
+        If ((akBaseObject as Ammo) != None)
+            Actor npc = GetReference() as Actor
+            If (npcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] Unequip ammo " + DDNF_Game.FormIdAsString(akBaseObject) + " " + akBaseObject.GetName() + " of " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " after it was equipped.")
+            EndIf
+            npc.UnequipItem(akBaseObject, abSilent=true)
+            Return
+        EndIf
         Bool doUnequip = false
         Armor equippedArmor = akBaseObject as Armor
         If (equippedArmor != None)
@@ -259,7 +267,7 @@ Event OnObjectEquipped(Form akBaseObject, ObjectReference akReference)
                         If (npcTracker.EnablePapyrusLogging)
                             Debug.Trace("[DDNF] Unequip weapon display armor " + DDNF_Game.FormIdAsString(akBaseObject) + " " + akBaseObject.GetName() + " of " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " after it was equipped.")
                         EndIf
-                        npc.UnequipItem(equippedArmor, abSilent=true)
+                        npc.UnequipItem(akBaseObject, abSilent=true)
                     EndIf
                 EndIf
                 Return
@@ -270,8 +278,8 @@ Event OnObjectEquipped(Form akBaseObject, ObjectReference akReference)
             doUnequip = (akBaseObject as Spell) != None
         EndIf
         If (!doUnequip)
-            Weapon equippiedWeapon = akBaseObject as Weapon
-            doUnequip = equippiedWeapon != None && equippiedWeapon != npcTracker.DummyWeapon
+            Weapon equippedWeapon = akBaseObject as Weapon
+            doUnequip = equippedWeapon != None && equippedWeapon != npcTracker.DummyWeapon
         EndIf
         If (doUnequip)
             Actor npc = GetReference() as Actor
@@ -386,7 +394,7 @@ Function HandleHitFrom(Actor attacker, Form akSource)
         Actor npc = GetReference() as Actor
         If (npc != None && npc.IsHostileToActor(attacker) && IsHostileHitSource(akSource))
             DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
-            If (!attacker.HasKeyword(npcTracker.ActorTypeDragon) && !npcTracker.MassiveRaces.HasForm(attacker.GetRace())) ; do not start unarmed combat with dragons, giants, mammoths or dwarven centurions
+            If (!attacker.HasKeyword(npcTracker.ActorTypeDragon) && !npcTracker.MassiveRacesList.HasForm(attacker.GetRace())) ; do not start unarmed combat with dragons, giants, mammoths or dwarven centurions
                 If (_evadeCombat) ; double-check to catch race condition
                     _evadeCombat = false
                     npc.RemoveFromFaction(npcTracker.EvadeCombat)
@@ -777,6 +785,7 @@ Event OnUpdate()
     ; almost done, so do not abort and reschedule if another fixup is scheduled, just let things run their normal course instead
 
     ; step four: set state and adjust factions
+    Bool oldHasAnimation = _hasAnimation
     _hasAnimation = hasAnimation
     _hasPanelGag = hasPanelGag
     _isBound = isBound
@@ -816,14 +825,18 @@ Event OnUpdate()
 
     ; done
     If (enablePapyrusLogging)
-        Debug.Trace("[DDNF] Succeeded fixing up devices of " + formIdAndName + ".")
+        Debug.Trace("[DDNF] Succeeded fixing up devices of " + formIdAndName + ", running after-fixup actions.")
     EndIf
     KickEscapeSystem(false)
-    If (_hasAnimation)
+    If (!oldHasAnimation && _hasAnimation)
         OnPackageStart(npc.GetCurrentPackage())
     EndIf
     If (_useUnarmedCombatPackage)
         UnequipEquippedArmors(npc, npcTracker.WeaponDisplayArmors, true)
+        UnequipEquippedAmmo(npc, npcTracker.VendorItemArrow)
+    EndIf
+    If (enablePapyrusLogging)
+        Debug.Trace("[DDNF] Finished after-fixup actions for " + formIdAndName + ".")
     EndIf
 EndEvent
 
@@ -1323,6 +1336,25 @@ EndFunction
 
 
 ;
+; Unequip all ammo.
+;
+Function UnequipEquippedAmmo(Actor npc, Keyword ammoKeyword) Global
+    If (!npc.WornHasKeyword(ammoKeyword))
+        Return ; short-circuit
+    EndIf
+    Int index = npc.GetNumItems() - 1 ; start at end to increase chance of early abort
+    While (index >= 0)
+        Ammo maybeAmmo = npc.GetNthForm(index) as Ammo
+        If (maybeAmmo != None && npc.IsEquipped(maybeAmmo))
+            npc.UnequipItem(maybeAmmo, abSilent = true)
+            Return ; early exit
+        EndIf
+        Index -= 1
+    EndWhile
+EndFunction
+
+
+;
 ; Quick-equip some (inventory) devices on the npc.
 ;
 Int Function QuickEquipDevices(Armor[] devices, Int count, Bool equipRenderedDevices)
@@ -1687,16 +1719,16 @@ EndFunction
 
 Bool Function HasDeviousDevicesOutfit(Actor npc, DDNF_NpcTracker npcTracker) Global
     ActorBase npcBase = npc.GetActorBase()
-    Return IsDeviousDeviesOutfit(npcBase.GetOutfit(), npcTracker) || IsDeviousDeviesOutfit(StorageUtil.GetFormValue(npcBase, "zad_OriginalOutfit") as Outfit, npcTracker)
+    Return IsDeviousDevicesOutfit(npcBase.GetOutfit(), npcTracker) || IsDeviousDevicesOutfit(StorageUtil.GetFormValue(npcBase, "zad_OriginalOutfit") as Outfit, npcTracker)
 EndFunction
 
-Bool Function IsDeviousDeviesOutfit(Outfit maybeOutfit, DDNF_NpcTracker npcTracker) Global
+Bool Function IsDeviousDevicesOutfit(Outfit maybeOutfit, DDNF_NpcTracker npcTracker) Global
     If (maybeOutfit == None)
         Return false
     EndIf
-    Int isDeviousDevicesOutfit = StorageUtil.GetIntValue(maybeOutfit, "ddnf_dd", -1)
-    If (isDeviousDevicesOutfit < 0)
-        isDeviousDevicesOutfit = 0
+    Int isDDOutfit = StorageUtil.GetIntValue(maybeOutfit, "ddnf_dd", -1)
+    If (isDDOutfit < 0)
+        isDDOutfit = 0
         Int count = maybeOutfit.GetNumParts()
         Int index = 0
         While (index < count)
@@ -1704,18 +1736,18 @@ Bool Function IsDeviousDeviesOutfit(Outfit maybeOutfit, DDNF_NpcTracker npcTrack
             If (maybeArmor != None)
                 Bool isInventoryDevice = DDNF_NpcTracker.GetRenderedDevice(maybeArmor, false) != None
                 If (isInventoryDevice || DDNF_NpcTracker.TryGetInventoryDevice(maybeArmor) != None || maybeArmor.HasKeyword(npcTracker.DDLibs.zad_Lockable) || maybeArmor.HasKeyword(npcTracker.DDLibs.zad_DeviousPlug))
-                    isDeviousDevicesOutfit = 1
+                    isDDOutfit = 1
                     index = count ; early abort
                 EndIf
             EndIf
             index += 1
         EndWhile
-        StorageUtil.SetIntValue(maybeOutfit, "ddnf_dd", isDeviousDevicesOutfit)
+        StorageUtil.SetIntValue(maybeOutfit, "ddnf_dd", isDDOutfit)
         If (npcTracker.EnablePapyrusLogging)
-            Debug.Trace("[DDNF] StorageUtil: SetIntValue(" + DDNF_Game.FormIdAsString(maybeOutfit) + ", ddnf_dd, " + isDeviousDevicesOutfit + ")")
+            Debug.Trace("[DDNF] StorageUtil: SetIntValue(" + DDNF_Game.FormIdAsString(maybeOutfit) + ", ddnf_dd, " + isDDOutfit + ")")
         EndIf
     EndIf
-    Return isDeviousDevicesOutfit > 0
+    Return isDDOutfit > 0
 EndFunction
 
 String Function GetStatusText(zadLibs ddLibs, Bool includeHelpless)
