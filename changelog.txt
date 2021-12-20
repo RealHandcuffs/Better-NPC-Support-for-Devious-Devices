@@ -158,7 +158,7 @@ Version 0.5 RC 2
 - Clean masters of esp
 
 Version 0.5 RC 3
-- Change how the escape system recognizes NPCs that should not escape, it now checks if their outfit contains devious devices
+- Change how the escape system recognizes NPCs that should not struggle, it now checks if their outfit contains devious devices
 - Block The Whip And Chain actors from escape system in addition to outfit check mentioned above
 - Change build scripts to support Skyrim SE, the scripts are now compiled with SE and a .bsa is built using the SE format
 - Optimize "restore original outfit" code
