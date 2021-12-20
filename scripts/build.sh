@@ -16,6 +16,7 @@ set -e
 CLEAN=1
 QUIET=""
 LOOSE=0
+SE=0
 for VAR in "$@"
 do
   case "$VAR" in
@@ -31,12 +32,16 @@ do
       QUIET="-q";;
     "--quiet" )
       QUIET="q";;
+    "-s" )
+      SE=1;;
+    "--se" )
+      SE=1;;
     * )
       if [[ "$VAR" != "-h" && "$VAR" != "--help" ]]
       then
         echo "Invalid argument: $VAR"
       fi
-      echo "Usage: $(basename "$0") [-q|--quiet] [-n|--no-clean] [-l|--loose]"
+      echo "Usage: $(basename "$0") [-q|--quiet] [-n|--no-clean] [-l|--loose] [-s|--se]"
       exit -1;;
   esac
 done
@@ -48,7 +53,12 @@ cd "$BASE_DIR"
 
 # find tools and set env variables pointing to them
 echo "#!/bin/bash" > build/setenv.sh
-scripts/find_tools.sh -g >> build/setenv.sh
+if [[ $SE == 0 ]]
+then
+  scripts/find_tools.sh -g -c >> build/setenv.sh
+else
+  scripts/find_tools.sh -g -s >> build/setenv.sh
+fi
 . build/setenv.sh
 rm ./build/setenv.sh
 
@@ -63,7 +73,12 @@ then
 fi
 
 # compile papyrus scripts
-scripts/compile_papyrus.sh $QUIET
+if [[ $$SE = 0 ]]
+then
+  scripts/compile_papyrus.sh $QUIET
+else
+  scripts/compile_papyrus.sh $QUIET -s
+fi
 
 # copy remaining files to build directory
 if [[ "$QUIET" == "" ]]
@@ -119,7 +134,12 @@ function build_bsa() {
     done
     ls -1 -d */ | sed 's:/*$::' | xargs -i{} echo "Add Directory: {}" >> archive.txt
     echo "Save Archive: $2" >> archive.txt
-    "$DIR_SKYRIM_CREATION_KIT/Archive.exe" archive.txt
+    if [[ $SE == 0 ]]
+    then
+      "$DIR_SKYRIM_CREATION_KIT/Archive.exe" archive.txt
+    else
+      "$DIR_SKYRIM_SE_CREATION_KIT/Tools/Archive/Archive.exe" archive.txt
+    fi
     mv "$2" "$BASE_DIR/build/$1"
     mv archive.log "$BASE_DIR/build/$2.log"
     cd "$BASE_DIR/build/$1"
@@ -145,8 +165,14 @@ if [[ "$QUIET" == "" ]]
 then
   echo "Creating archive:"
 fi
-"$TOOL_7ZIP" a -t7z -mx=9 -myx=9 -mmt=off "build\Better NPC Support for Devious Devices $VERSION.7z" ".\build\package\*" > /dev/null
+if [[ $SE == 0 ]]
+then
+    ARCHIVE_PATH="build\Better NPC Support for Devious Devices $VERSION.7z"
+else    
+    ARCHIVE_PATH="build\Better NPC Support for Devious Devices $VERSION SE.7z"
+fi    
+"$TOOL_7ZIP" a -t7z -mx=9 -myx=9 -mmt=off "$ARCHIVE_PATH" ".\build\package\*" > /dev/null
 if [[ "$QUIET" == "" ]]
 then
-  echo "  build\Better NPC Support for Devious Devices $VERSION.7z ($(stat --printf="%s" "$BASE_DIR/build\Better NPC Support for Devious Devices $VERSION.7z") bytes)"
+  echo "  $ARCHIVE_PATH ($(stat --printf="%s" "$BASE_DIR/$ARCHIVE_PATH") bytes)"
 fi

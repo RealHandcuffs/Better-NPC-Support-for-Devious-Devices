@@ -1,4 +1,4 @@
-
+;
 ; See comment in DDNF_NpcTracker for the purpose of this script.
 ; We do not add properties to this script as there are a lot of instances.
 ; Instead properties are added to DDNF_NpcTracker.
@@ -1396,9 +1396,16 @@ Int Function PerformEscapeAttempt(Bool suppressNotifications)
     DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
     Bool isCurrentFollower = IsCurrentFollower(npc, npcTracker)
     If (!isCurrentFollower)
-        If (HasDeviousDevicesDependency(npc, npcTracker))
+        Int modId = DDNF_Game.GetModId(npc.GetFormID())
+        If (modId == npcTracker.DeviouslyCursedLootModId && DDNF_DcurShim.IsStruggleBlocklistedCharacter(npc))
             If (npcTracker.EnablePapyrusLogging)
-                Debug.Trace("[DDNF] Aborting escape attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " because defining mod depends on Devious Devices.")
+                Debug.Trace("[DDNF] Aborting escape attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " because npc is blocklisted for struggling.")
+            EndIf
+            Return -1
+        EndIf
+        If (HasDeviousDevicesOutfit(npc, npcTracker))
+            If (npcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] Aborting escape attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " because npc has Devious Devices outfit.")
             EndIf
             Return -1
         EndIf
@@ -1559,32 +1566,34 @@ Bool Function IsCurrentFollower(Actor npc, DDNF_NpcTracker npcTracker) Global
     Return result
 EndFunction
 
-Bool Function HasDeviousDevicesDependency(Form item, DDNF_NpcTracker npcTracker) Global
-    If (item != None)
-        Int formId = item.GetFormID()
-        Int modId = DDNF_Game.GetModId(formId)
-        If (modId > 0 && modId != npcTracker.DeviousDevicesIntegrationModId)
-            String modName = Game.GetModName(modId)
-            If (modName != "")
-                String storageUtilKey = "ddnf_dd_dep<" + modName + ">"
-                Int hasDependency = StorageUtil.GetIntValue(None, storageUtilKey, -1)
-                If (hasDependency == -1)
-                    hasDependency = 0
-                    If (DDNF_Game.IsMasterOf(npcTracker.DeviousDevicesIntegrationModId, modId))
-                        hasDependency = 1
-                    EndIf
-                    StorageUtil.SetIntValue(None, storageUtilKey, hasDependency)
-                    If (npcTracker.EnablePapyrusLogging)
-                        Debug.Trace("[DDNF] StorageUtil: SetIntValue(None, " + storageUtilKey + ", " + hasDependency + ")")
-                    EndIf
-                EndIf
-                If (hasDependency > 0)
-                    Return true
+Bool Function HasDeviousDevicesOutfit(Actor npc, DDNF_NpcTracker npcTracker) Global
+    ActorBase npcBase = npc.GetActorBase()
+    Return IsDeviousDeviesOutfit(npcBase.GetOutfit(), npcTracker) || IsDeviousDeviesOutfit(StorageUtil.GetFormValue(npcBase, "zad_OriginalOutfit") as Outfit, npcTracker)
+EndFunction
+
+Bool Function IsDeviousDeviesOutfit(Outfit maybeOutfit, DDNF_NpcTracker npcTracker) Global
+    If (maybeOutfit == None)
+        Return false
+    EndIf
+    Int isDeviousDevicesOutfit = StorageUtil.GetIntValue(maybeOutfit, "ddnf_dd", -1)
+    If (isDeviousDevicesOutfit < 0)
+        isDeviousDevicesOutfit = 0
+        Int count = maybeOutfit.GetNumParts()
+        Int index = 0
+        While (index < count)
+            Armor maybeArmor = maybeOutfit.GetNthPart(index) as Armor
+            If (maybeArmor != None)
+                Bool isInventoryDevice = DDNF_NpcTracker.GetRenderedDevice(maybeArmor, false) != None
+                If (isInventoryDevice || DDNF_NpcTracker.TryGetInventoryDevice(maybeArmor) != None || maybeArmor.HasKeyword(npcTracker.DDLibs.zad_Lockable) || maybeArmor.HasKeyword(npcTracker.DDLibs.zad_DeviousPlug))
+                    isDeviousDevicesOutfit = 1
+                    index = count ; early abort
                 EndIf
             EndIf
-        EndIf
+            index += 1
+        EndWhile
+        StorageUtil.SetIntValue(maybeOutfit, "ddnf_dd", isDeviousDevicesOutfit)
     EndIf
-    Return false
+    Return isDeviousDevicesOutfit > 0
 EndFunction
 
 String Function GetStatusText(zadLibs ddLibs, Bool includeHelpless)

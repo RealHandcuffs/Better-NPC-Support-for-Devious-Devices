@@ -4,22 +4,6 @@
 Scriptname DDNF_Game
 
 ;
-; Check if a mod is a master of another mod. This function can be slow.
-;
-Bool Function IsMasterOf(Int masterModId, Int maybeUsingModId) Global
-    Int dependencyCount = Game.GetModDependencyCount(maybeUsingModId)
-    Int index = 0
-    While (index < dependencyCount)
-        Int dependencyModId = Game. GetNthModDependency(maybeUsingModId, index)
-        If (dependencyModId == masterModId)
-            Return true
-        EndIf
-        index += 1
-    EndWhile
-    Return false
-EndFunction
-
-;
 ; Get the name of the mod that defined a form.
 ;
 String Function GetModName(Form item) Global

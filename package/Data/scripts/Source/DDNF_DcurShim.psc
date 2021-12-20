@@ -84,3 +84,9 @@ Bool Function UnlockDevice(DDNF_NpcTracker npcTracker, Actor npc, Armor inventor
     EndIf
     Return false
 EndFunction
+
+
+Bool Function IsStruggleBlocklistedCharacter(Actor npc) Global
+    FormList theWhipAndChainActors = Game.GetFormFromFile(0x122B5D, "Deviously Cursed Loot.esp") as FormList ; dcur_twac_actors
+    Return theWhipAndChainActors.HasForm(npc)
+EndFunction
