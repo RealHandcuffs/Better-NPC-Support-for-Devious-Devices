@@ -162,3 +162,6 @@ Version 0.5 RC 3
 - Block The Whip And Chain actors from escape system in addition to outfit check mentioned above
 - Change build scripts to support Skyrim SE, the scripts are now compiled with SE and a .bsa is built using the SE format
 - Optimize "restore original outfit" code
+
+Version 0.5
+- Same as 0.5 RC 3, other than version string
