@@ -106,3 +106,62 @@ Version 0.4
 - Add more information to MCM: Show tracking id and equipped devices of NPC under crosshair
 - Add DDNF_ExternalApi to support other mods getting or equipping devices
 - Some more internal changes
+
+Version 0.5 beta 1
+- Prevent NPCs with equipped devices from becoming bard audience
+- Allow the player to manipulate NPC's panel gags by removing/inserting plug
+- Allow the player to lock NPC's DCUR rubber gloves with D-links
+- Fix unlocking NPC's DCUR locked rubber gloves (DCUR assumes it is only worn by player)
+
+Version 0.5 beta 2
+- Recognize devious plugs, too (they were ignored up to now)
+- Some refactoring and additions to ExternalApi.psc
+
+Version 0.5 beta 3
+- Refactoring and small fixes
+
+Version 0.5 beta 4
+- First version of escape system, disabled by default, needs to be enabled in MCM
+- Some bugfixes, e.g. race conditions when loading game
+- Change layout of MCM
+
+Version 0.5 beta 5
+- Tweak timing and messages of escape system
+- Fix handling of quest devices by escape system (will now struggle but always fail)
+- More MCM improvements
+
+Version 0.5 beta 6
+- Change MCM settings for player notifications to three states: None, summary only, detailed
+- Be much more restrictive about which NPCs are allowed to escape devices if they are not current follower
+- Various fixes, tweaks and internal changes to escape system and handling of devices
+
+Version 0.5 beta 7
+- Change package to contain .bsa archive instead of loose files
+- Add option to fix inconsistent devices of current followers automatically, enabled by default
+- Player teammates will not start to struggle when the player is in combat or sneaking
+- Change layout of MCM menu
+- Add more MCM settings for tweaking struggling behavior
+- Fix enable/disable NPC processing in MCM
+- Various minor fixes and improvements
+
+Version 0.5 beta 8
+- Interrupt escape attempts when NPCs are hit
+- Prevent struggling NPCs from moving or using furniture
+
+Version 0.5 RC 1
+- Change logic for unlock difficulty, use similar logic like DD does for player
+- Prevent struggling when NPC is being animated by sexlab
+- Internal changes allowing to recalculate helpless/not helples without full fixup
+
+Version 0.5 RC 2
+- Small performance optimization (override DD bound NPC sandbox packages with custom script to prevent unnecessary EvaluateAA call)
+- Clean masters of esp
+
+Version 0.5 RC 3
+- Change how the escape system recognizes NPCs that should not struggle, it now checks if their outfit contains devious devices
+- Block The Whip And Chain actors from escape system in addition to outfit check mentioned above
+- Change build scripts to support Skyrim SE, the scripts are now compiled with SE and a .bsa is built using the SE format
+- Optimize "restore original outfit" code
+
+Version 0.5
+- Same as 0.5 RC 3, other than version string

@@ -13,6 +13,7 @@ set -e
 
 # check arguments
 QUIET=0
+SE=0
 for VAR in "$@"
 do
   case "$VAR" in
@@ -20,12 +21,16 @@ do
       QUIET=1;;
     "--quiet" )
       QUIET=1;;
+    "-s" )
+      SE=1;;
+    "--se" )
+      SE=1;;
     * )
       if [[ "$VAR" != "-h" && "$VAR" != "--help" ]]
       then
         echo "Invalid argument: $VAR"
       fi
-      echo "Usage: $(basename "$0") [-q|--quiet]"
+      echo "Usage: $(basename "$0") [-q|--quiet] [-s|--se]"
       exit -1;;
   esac
 done
@@ -37,27 +42,58 @@ cd "$BASE_DIR"
 
 # find tools and set env variables pointing to them
 echo "#!/bin/bash" > build/setenv.sh
-scripts/find_tools.sh -g >> build/setenv.sh
+if [[ $SE == 0 ]]
+then
+  scripts/find_tools.sh -g -c >> build/setenv.sh
+else
+  scripts/find_tools.sh -g -s >> build/setenv.sh
+fi
 . build/setenv.sh
 rm ./build/setenv.sh
 
 # find source directory for papyrus compiler (installed with creation kit)
-PAPYRUS_SOURCE="$DIR_SKYRIM_CREATION_KIT/Data/Scripts/Source"
+if [[ $SE == 0 ]]
+then
+  PAPYRUS_SOURCE="$DIR_SKYRIM_CREATION_KIT/Data/Scripts/Source"
+else
+  PAPYRUS_SOURCE="$DIR_SKYRIM_SE_CREATION_KIT/Data/Source/Scripts"
+fi
 if [[ ! -f "$PAPYRUS_SOURCE/TESV_Papyrus_Flags.flg" ]]
 then
+  if [[ $SE == 0 ]]
+  then
     PAPYRUS_SOURCE="$DIR_SKYRIM/Data/Scripts/Source"
-    if [[ ! -f "$PAPYRUS_SOURCE/TESV_Papyrus_Flags.flg" ]]
-    then
-      >&2 echo "ERROR: Unable to find papyrus base source dir."
-      exit -1
-    fi
+  else
+    PAPYRUS_SOURCE="$DIR_SKYRIM_SE/Data/Source/Scripts"
+  fi
+  if [[ ! -f "$PAPYRUS_SOURCE/TESV_Papyrus_Flags.flg" ]]
+  then
+    >&2 echo "ERROR: Unable to find papyrus base source dir."
+    exit -1
+  fi
 fi
 
-# this same directory also needs to contain SKSE sources and sources of all dependencies
-if [[ ! -f "$PAPYRUS_SOURCE/SKSE.psc" ]]
+# also find sources for SKSE (sources of all dependencies need to be in the same place, too)
+if [[ $SE == 0 ]]
 then
+  # in the same place for sykrim classic
+  if [[ ! -f "$PAPYRUS_SOURCE/SKSE.psc" ]]
+  then
     >&2 echo "ERROR: SKSE sources are missing."
     exit -1
+  fi
+else
+  # in a different place for skyrim se
+  SKSE_SOURCE="$DIR_SKYRIM_SE_CREATION_KIT/Data/Scripts/Source"
+  if [[ ! -f "$SKSE_SOURCE/SKSE.psc" ]]
+  then
+    SKSE_SOURCE="$DIR_SKYRIM_SE/Data/Scripts/Source"
+  fi
+  if [[ ! -f "$SKSE_SOURCE/SKSE.psc" ]]
+  then
+    >&2 echo "ERROR: SKSE sources are missing."
+    exit -1
+  fi
 fi
 
 # set up a function to compile all scripts in a folder using parallel execution
@@ -74,7 +110,12 @@ function compile_folder() {
   for f in $(ls -1a *.psc)
   do
     files+=( "$f" )
-    "$DIR_SKYRIM_CREATION_KIT/Papyrus Compiler/PapyrusCompiler.exe" "$f" -optimize -quiet -flags="$(cygpath -w "$PAPYRUS_SOURCE/TESV_Papyrus_Flags.flg")" -import="$(cygpath -w "$PAPYRUS_SOURCE");$(cygpath -w "$PAPYRUS_SOURCE/Dawnguard")" -output="$(cygpath -w "$BASE_DIR/build/$1")" &
+    if [[ $SE == 0 ]]
+    then
+      "$DIR_SKYRIM_CREATION_KIT/Papyrus Compiler/PapyrusCompiler.exe" "$f" -optimize -quiet -flags="$(cygpath -w "$PAPYRUS_SOURCE/TESV_Papyrus_Flags.flg")" -import="$(cygpath -w "$PAPYRUS_SOURCE");$(cygpath -w "$PAPYRUS_SOURCE/Dawnguard")" -output="$(cygpath -w "$BASE_DIR/build/$1")" &
+    else
+      "$DIR_SKYRIM_SE_CREATION_KIT/Papyrus Compiler/PapyrusCompiler.exe" "$f" -optimize -quiet -flags="$(cygpath -w "$PAPYRUS_SOURCE/TESV_Papyrus_Flags.flg")" -import="$(cygpath -w "$SKSE_SOURCE");$(cygpath -w "$PAPYRUS_SOURCE")" -output="$(cygpath -w "$BASE_DIR/build/$1")" &
+    fi
     pids+=( "$!" )
   done
   failures=()
