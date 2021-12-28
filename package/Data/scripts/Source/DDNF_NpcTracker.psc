@@ -349,12 +349,23 @@ Function HandleScannerFinished(Int counter)
         While (index < 8)
             ; detect and fix bad data in _cachedNpcs
             Int arrayIndex = (offset + index) % aliases.Length
-            ObjectReference expected = (aliases[arrayIndex] as ReferenceAlias).GetReference()
-            If (npcs[arrayIndex] != expected) ; there seems to be a race condition with events somewhere...
+            DDNF_NpcTracker_NPC tracker = (aliases[arrayIndex] as DDNF_NpcTracker_NPC)
+            Actor npc = tracker.GetReference() as Actor
+            If (npcs[arrayIndex] != npc) ; there seems to be a race condition with events somewhere...
                 If (EnablePapyrusLogging)
                     Debug.Trace("[DDNF] Detected bad data at npcs[" + arrayIndex + "], fixing.")
                 EndIf
-                npcs[arrayIndex] = expected
+                npcs[arrayIndex] = npc
+            EndIf
+            If (npc != None)
+                ; handle missed events
+                If (npc.IsDead())
+                    tracker.Clear()
+                ElseIf (!npc.Is3DLoaded() || npc.IsDead())
+                    If (!tracker.IsWaitingForFixup())
+                        tracker.RegisterForFixup(16)
+                    EndIf
+                EndIf
             EndIf
             index += 1
         EndWhile

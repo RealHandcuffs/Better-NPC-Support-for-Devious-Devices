@@ -33,21 +33,15 @@ Bool _attemptedEscapeAgainstRenderedDevices
 
 
 Function HandleGameLoaded(Bool upgrade)
-    Actor npc = GetReference() as Actor
-    If (npc == None)
-        If (upgrade)
+    _lastFixupRealTime = 0.0 ; reset on game load
+    If (upgrade)
+        Actor npc = GetReference() as Actor
+        If (npc == None)
             GotoState("AliasEmpty") ; may be necessary if upgrading from an old version without script states
-        EndIf
-    Else
-        ; clear on upgrade, NPC will be re-added if found again
-        ; also clear if NPC is dead (safety check in case OnDeath was missed somehow)
-        If (upgrade || npc.IsDead())
+        Else
+            ; clear on upgrade, NPC will be re-added if found again
             Clear()
-        ; also do a safety check in case OnCellDetach was missed somehow
-        ElseIf (!IsParentCellAttached(npc))
-            RegisterForFixup(8.0)
         EndIf
-        _lastFixupRealTime = 0.0 ; reset on game load
     EndIf
 EndFunction
 
@@ -91,10 +85,8 @@ Function ForceRefTo(ObjectReference akNewRef) ; override
         GotoState("AliasOccupied")
         ; we will receive OnDeath event when NPC dies from now on, but they might already be dead
         npc.RemoveFromFaction(npcTracker.Struggling) ; safety code in case something went wrong
-        If (npc.IsDead())
-            Clear()
-        ElseIf (!IsParentCellAttached(npc)) ; same for OnCellDetach
-            RegisterForFixup(8.0)
+        If (!npc.Is3DLoaded())
+            RegisterForFixup(16.0)
         ElseIf (npc.GetItemCount(npcTracker.DDLibs.zad_Lockable) == 0 && npc.GetItemCount(npcTracker.DDLibs.zad_DeviousPlug) == 0)
             _renderedDevicesFlags = 0
             If (_renderedDevices.Length != 32) ; number of slots
@@ -102,7 +94,7 @@ Function ForceRefTo(ObjectReference akNewRef) ; override
             Else
                  _renderedDevices[0] = None
             EndIf
-            RegisterForFixup(8.0)
+            RegisterForFixup(16.0)
         Else
             RegisterForFixup()
         EndIf
@@ -179,18 +171,13 @@ Event OnDeath(Actor akKiller)
 EndEvent
 
 
-Event OnCellAttach()
+Event OnLoad()
     RegisterForFixup()
 EndEvent
 
-Event OnAttachedToCell()
-    RegisterForFixup()
+Event OnUnload()
+    RegisterForFixup(16.0) ; the update will call Clear() if 3D is not loaded
 EndEvent
-
-Event OnCellDetach()
-    RegisterForFixup(8.0) ; the update will call Clear() if still not loaded
-EndEvent
-
 
 Event OnItemAdded(Form akBaseItem, int aiItemCount, ObjectReference akItemReference, ObjectReference akSourceContainer)
     If (!_quickEquipRunning)
@@ -247,47 +234,43 @@ EndFunction
 
 
 Event OnObjectEquipped(Form akBaseObject, ObjectReference akReference)
-    If (_useUnarmedCombatPackage && !_fixupLock)
-        DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
-        If ((akBaseObject as Ammo) != None)
-            Actor npc = GetReference() as Actor
-            If (npcTracker.EnablePapyrusLogging)
-                Debug.Trace("[DDNF] Unequip ammo " + DDNF_Game.FormIdAsString(akBaseObject) + " " + akBaseObject.GetName() + " of " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " after it was equipped.")
-            EndIf
-            npc.UnequipItem(akBaseObject, abSilent=true)
-            Return
-        EndIf
-        Bool doUnequip = false
-        Armor equippedArmor = akBaseObject as Armor
-        If (equippedArmor != None)
-            If (!equippedArmor.IsShield())
-                If (npcTracker.WeaponDisplayArmors.HasForm(equippedArmor))
-                    Actor npc = GetReference() as Actor
-                    If (npc != None && _useUnarmedCombatPackage && !_fixupLock) ; recheck conditions
-                        If (npcTracker.EnablePapyrusLogging)
-                            Debug.Trace("[DDNF] Unequip weapon display armor " + DDNF_Game.FormIdAsString(akBaseObject) + " " + akBaseObject.GetName() + " of " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " after it was equipped.")
-                        EndIf
-                        npc.UnequipItem(akBaseObject, abSilent=true)
-                    EndIf
-                EndIf
+    Actor npc = GetReference() as Actor
+    If (npc != None && !_fixupLock)
+        If (_isGagged)
+            Shout equippedShout = akBaseObject as Shout
+            If (equippedShout != None)
+                npc.UnequipShout(equippedShout)
                 Return
             EndIf
-            doUnequip = true
         EndIf
-        If (!doUnequip)
-            doUnequip = (akBaseObject as Spell) != None
-        EndIf
-        If (!doUnequip)
-            Weapon equippedWeapon = akBaseObject as Weapon
-            doUnequip = equippedWeapon != None && equippedWeapon != npcTracker.DummyWeapon
-        EndIf
-        If (doUnequip)
-            Actor npc = GetReference() as Actor
-            If (npc != None && _useUnarmedCombatPackage && !_fixupLock) ; recheck conditions
-                If (npcTracker.EnablePapyrusLogging)
-                    Debug.Trace("[DDNF] Unequip weapons of " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " after " + DDNF_Game.FormIdAsString(akBaseObject) + " " + akBaseObject.GetName() + " was equipped.")
+        If (_useUnarmedCombatPackage)
+            DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
+            If ((akBaseObject as Ammo) != None)
+                npc.UnequipItem(akBaseObject, abSilent=true)
+                Return
+            EndIf
+            Armor equippedArmor = akBaseObject as Armor
+            Bool isShield = false
+            If (equippedArmor != None)
+                If (!equippedArmor.IsShield())
+                    If (npcTracker.WeaponDisplayArmors.HasForm(equippedArmor))
+                        npc.UnequipItem(akBaseObject, abSilent=true)
+                    EndIf
+                    Return
                 EndIf
-                If (!(UnequipWeapons(npc, npcTracker.DummyWeapon)) && npc.GetItemCount(npcTracker.DummyWeapon) > 0)
+                isShield = true
+            EndIf
+            Bool doUnequip = isShield || (akBaseObject as Spell) != None
+            If (!doUnequip)
+                Weapon equippedWeapon = akBaseObject as Weapon
+                doUnequip = equippedWeapon != None && equippedWeapon != npcTracker.DummyWeapon
+            EndIf
+            If (doUnequip)
+                npc.UnequipItem(akBaseObject, abSilent=true)
+                If (!isShield && npc.IsEquipped(akBaseObject)) ; possible because it can be in both hands
+                    npc.UnequipItem(akBaseObject, abSilent=true)
+                EndIf
+                If (npc.GetItemCount(npcTracker.DummyWeapon) > 0)
                     npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
                 EndIf
             EndIf
@@ -365,7 +348,7 @@ Event OnPackageStart(Package akNewPackage)
             Package template = akNewPackage.GetTemplate()
             If (template == npcTracker.Sandbox)
                 Actor npc = GetReference() as Actor
-                If (npc != None && IsParentCellAttached(npc))
+                If (npc != None && npc.Is3DLoaded())
                     ; npc switched to sandbox package (other than DD sandbox packages), check if we can kick them out of it again
                     If (npcTracker.EnablePapyrusLogging)
                         Debug.Trace("[DDNF] Trying to kick " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " out of sandboxing package.")
@@ -551,6 +534,11 @@ Function RegisterForFixup(Float delay = 1.0) ; 1.0 is usually a good compromise 
     _waitingForFixup = true
 EndFunction
 
+Bool Function IsWaitingForFixup()
+    Return _waitingForFixup
+EndFunction
+
+
 
 ;
 ; Fixup is performed from update event.
@@ -566,7 +554,7 @@ Event OnUpdate()
     If (!npcTracker.IsEnabled)
         Return ; abort, concurrent update/start/stop
     EndIf
-    If (!IsParentCellAttached(npc)) ; even if _fixupLock is true
+    If (!npc.Is3DLoaded() || npc.IsDead()) ; even if _fixupLock is true
         Clear()
         Return
     EndIf
@@ -579,7 +567,7 @@ Event OnUpdate()
         If (enablePapyrusLogging)
             Debug.Trace("[DDNF] Postponing fixup of " + formIdAndName + " by 5.0 s (already running).")
         EndIf
-        RegisterForFixup(5.0) ; already running, postpone
+        RegisterForFixup(4.0) ; already running, postpone
         Return
     EndIf
     _fixupLock = true ; we know it is currently false
@@ -601,13 +589,10 @@ Event OnUpdate()
     If (timeSinceLastFixup < 0)
         timeSinceLastFixup = 99 ; race condition when loading game
     EndIf
-    If (timeSinceLastFixup < 5.0)
-        ; do not run fixup on the same NPC more frequently than every 5 seconds real time
+    If (timeSinceLastFixup < 4.0)
+        ; do not run fixup on the same NPC more frequently than every 4 seconds real time
         ; this serves as a way to prevent many fixups in case a script is modifying the equipment item by item
-        Float waitTime = 5.0 - timeSinceLastFixup
-        If (waitTime < 0.5)
-            waitTime = 0.5
-        EndIf
+        Float waitTime = 4.0 - timeSinceLastFixup
         _fixupLock = false
         If (enablePapyrusLogging)
             Debug.Trace("[DDNF] Postponing fixup of " + formIdAndName + " by " + waitTime + " s (recent fixup).")
@@ -651,7 +636,7 @@ Event OnUpdate()
         _attemptedEscapeAgainstRenderedDevices = false
         If (_waitingForFixup)
             ; something has triggered a new fixup while we were finding and analysing devices
-            If (_renderedDevicesFlags != -12345 || !IsParentCellAttached(npc))
+            If (_renderedDevicesFlags != -12345 || !npc.Is3DLoaded())
                 ; devices have been added/removed or npc has been unloaded, abort
                 If (_renderedDevicesFlags == -12345)
                     _renderedDevicesFlags = renderedDevicesFlags
@@ -785,6 +770,12 @@ Event OnUpdate()
     ElseIf (_useUnarmedCombatPackage)
         UnregisterForAnimationEvent(npc, "BeginWeaponDraw")
     EndIf
+    If (isGagged)
+        Shout equippedShout = npc.GetEquippedShout()
+        If (equippedShout != None)
+            npc.UnequipShout(equippedShout)
+        EndIf
+    EndIf
     ; almost done, so do not abort and reschedule if another fixup is scheduled, just let things run their normal course instead
 
     ; step four: set state and adjust factions
@@ -820,9 +811,9 @@ Event OnUpdate()
     If (_renderedDevicesFlags >= 0 && _renderedDevices[0] == None)
         ; no devices found, reschedule scan to remove NPC
         If (enablePapyrusLogging)
-            Debug.Trace("[DDNF] No devices found for " + formIdAndName + ", rescheduling another fixup in 8 seconds.")
+            Debug.Trace("[DDNF] No devices found for " + formIdAndName + ", rescheduling another fixup in 16 seconds.")
         EndIf
-        RegisterForFixup(8.0)
+        RegisterForFixup(16.0)
     EndIf
     _fixupLock = false
 
@@ -891,14 +882,6 @@ Bool Function UpdateEvadeCombat(Actor npc, DDNF_NpcTracker npcTracker)
     Return false
 EndFunction
 
-
-;
-; Check if the parent cell of an actor is currently attached.
-;
-Bool Function IsParentCellAttached(Actor npc) Global
-    Cell parentCell = npc.GetParentCell()
-    Return parentCell != None && parentCell.IsAttached()
-EndFunction
 
 ;
 ; Check if an animation variable is in the range of a FNIS group.
@@ -1255,38 +1238,30 @@ EndFunction
 ; returns true if ignoreWeapon was kept equipped
 Bool Function UnequipWeapons(Actor npc, Weapon ignoreWeapon = None) Global
     ; detect right hand weapon/spell (two-handed weapon counts as right hand)
-    Int itemType
-    Weapon rightHandWeapon = None
-    Spell rightHandSpell = None
-    itemType = npc.GetEquippedItemType(1)
-    If (itemType == 9)
-        rightHandSpell = npc.GetEquippedSpell(1)
-    Else
-        rightHandWeapon = npc.GetEquippedWeapon(false)
-    EndIf
+    Form rightHandForm = npc.GetEquippedObject(1) ; right hand
+    Weapon rightHandWeapon = rightHandForm as Weapon
+    Spell rightHandSpell = rightHandForm as Spell
     ; detect and unequip left-hand weapon/spell/shield
     Bool keptIgnoreWeapon = false
-    itemType = npc.GetEquippedItemType(0)
-    If (itemType != 0)
-        If (itemType == 9)
-            Spell leftHandSpell = npc.GetEquippedSpell(0)
-            If (leftHandSpell != None)
-                npc.UnequipSpell(leftHandSpell, 0)
-            EndIf
-        ElseIf (itemType == 10)
-            Armor shield = npc.GetEquippedShield()
+    Form leftHandForm = npc.GetEquippedObject(0) ; left hand
+    If (leftHandForm != None)
+        Spell leftHandSpell = leftHandForm as Spell
+        If (leftHandSpell != None)
+            npc.UnequipSpell(leftHandSpell, 0)
+        Else
+            Armor shield = leftHandForm as Armor
             If (shield != None)
                 npc.UnequipItem(shield, abSilent=true)
-            EndIf
-        Else
-            Weapon leftHandWeapon = npc.GetEquippedWeapon(true)
-            If (leftHandWeapon != None)
-                If (ignoreWeapon == None)
-                    npc.UnequipItemEx(leftHandWeapon, equipSlot=0)
-                ElseIf (leftHandWeapon != ignoreWeapon)
-                    npc.UnequipItemEx(leftHandWeapon, equipSlot=0)
-                Else
-                    keptIgnoreWeapon = true
+            Else
+                Weapon leftHandWeapon = leftHandForm as Weapon
+                If (leftHandWeapon != None)
+                    If (ignoreWeapon == None)
+                        npc.UnequipItemEx(leftHandWeapon, equipSlot=0)
+                    ElseIf (leftHandWeapon != ignoreWeapon)
+                        npc.UnequipItemEx(leftHandWeapon, equipSlot=0)
+                    Else
+                        keptIgnoreWeapon = true
+                    EndIf
                 EndIf
             EndIf
         EndIf
@@ -1487,25 +1462,24 @@ Event OnUpdateGameTime()
                 ; escape system is enabled for this NPC
                 Float hoursSinceLastAttempt = (Utility.GetCurrentGameTime() - _lastEscapeAttemptGameTime) * 24.0
                 If (hoursSinceLastAttempt >= struggleFrequency)
+                    String rescheduleReason = ""
                     Bool isPlayerTeammate = npc.IsPlayerTeammate()
-                    Bool playerInCombat = isPlayerTeammate && npcTracker.Player.GetCombatState() > 0
-                    Bool playerIsSneaking = isPlayerTeammate && !playerInCombat && npcTracker.Player.IsSneaking()
-                    Bool isOnMount = !playerInCombat && !playerIsSneaking && npc.IsOnMount()
-                    Bool isSexlabAnimated = !playerInCombat && !playerIsSneaking && !isOnMount && npc.IsInFaction(npcTracker.ddLibs.Sexlab.AnimatingFaction)
-                    Bool isCharmed = !playerInCombat && !playerIsSneaking && !isOnMount && !isSexlabAnimated && npc.HasMagicEffectWithKeyword(npcTracker.MagicInfluenceCharm)
-                    If (playerInCombat || playerIsSneaking || isOnMount || isSexlabAnimated || isCharmed)
+                    If (!npc.Is3DLoaded())
+                        rescheduleReason = "3D is not loaded"
+                    ElseIf (isPlayerTeammate && npcTracker.Player.GetCombatState() > 0)
+                        rescheduleReason = "is player teammate and player in combat"
+                    ElseIf (isPlayerTeammate && npcTracker.Player.IsSneaking())
+                        rescheduleReason = "is player teammate and player is sneaking"
+                    ElseIf (npc.IsOnMount())
+                        rescheduleReason = "is on mount"
+                    ElseIf (npc.IsInFaction(npcTracker.ddLibs.Sexlab.AnimatingFaction))
+                        rescheduleReason = "is animated by sexlab"
+                    ElseIf (npc.HasMagicEffectWithKeyword(npcTracker.MagicInfluenceCharm))
+                        rescheduleReason = "is charmed"
+                    EndIf
+                    If (rescheduleReason != "")
                         If (npcTracker.EnablePapyrusLogging)
-                            If (playerInCombat)
-                                Debug.Trace("[DDNF] Escape system: Rescheduling attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ", is player teammate and player in combat.")
-                            ElseIf (playerIsSneaking)
-                                Debug.Trace("[DDNF] Escape system: Rescheduling attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ", is player teammate and player is sneaking.")
-                            ElseIf (isOnMount)
-                                Debug.Trace("[DDNF] Escape system: Rescheduling attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ", is on mount.")
-                            ElseIf (isSexlabAnimated)
-                                Debug.Trace("[DDNF] Escape system: Rescheduling attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ", is animated by sexlab.")
-                            Else
-                                Debug.Trace("[DDNF] Escape system: Rescheduling attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ", is charmed.")
-                            EndIf
+                            Debug.Trace("[DDNF] Escape system: Rescheduling attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ", " + rescheduleReason + ".")
                         EndIf
                         GlobalVariable timeScale = Game.GetFormFromFile(0x00003A, "Skyrim.esm") as GlobalVariable
                         Float delay = Utility.RandomFloat(15, 45) * timeScale.GetValueInt() / 3600 ; X seconds real time
@@ -1658,7 +1632,7 @@ Int Function PerformEscapeAttempt(Bool suppressNotifications)
     ; notify player about the result
     Bool noChanceToEscape = succeededDeviceCount == 0 && failedDevicesCount > 0 && noChanceDeviceCount == failedDevicesCount
     If (succeededDeviceCount + failedDevicesCount > 0)
-        If (noChanceToEscape && doNotStruggleIfChanceZeroPercent && IsParentCellAttached(npc))
+        If (noChanceToEscape && doNotStruggleIfChanceZeroPercent && npc.Is3DLoaded())
             npcTracker.DDLibs.SexlabMoan(npc)
         EndIf
         If (displayNotifications)
@@ -2211,12 +2185,12 @@ Bool Function PlayStruggleAnimation(DDNF_NpcTracker npcTracker, zadLibs ddLibs, 
     EndIf
     npc.EvaluatePackage()
     String struggleAnimation = TryGetStruggleAnimation(ddLibs, deviceInstance, npc)
-    Bool playAnimation = struggleAnimation != "" && IsParentCellAttached(npc) && IsStruggling()
+    Bool playAnimation = struggleAnimation != "" && IsStruggling() && npc.Is3DLoaded()
     Bool[] cameraState
     Int waitCount = 4
     While (addedToFaction && waitCount > 0 && playAnimation && ddLibs.IsAnimating(npc))
         Utility.Wait(1)
-        playAnimation = playAnimation && IsParentCellAttached(npc) && IsStruggling()
+        playAnimation = playAnimation && IsStruggling() && npc.Is3DLoaded()
         waitCount -= 1
     EndWhile
     UnequipWeapons(npc, npcTracker.DummyWeapon)
@@ -2236,7 +2210,7 @@ Bool Function PlayStruggleAnimation(DDNF_NpcTracker npcTracker, zadLibs ddLibs, 
         Utility.Wait(1)
         waitCount -= 1
     EndWhile
-    If (!shortAnimationOnly && IsStruggling() && IsParentCellAttached(npc))
+    If (!shortAnimationOnly && IsStruggling() && npc.Is3DLoaded())
         ddLibs.Pant(npc)
     EndIf
     If (playAnimation)
@@ -2246,7 +2220,7 @@ Bool Function PlayStruggleAnimation(DDNF_NpcTracker npcTracker, zadLibs ddLibs, 
                 Utility.Wait(1)
                 waitCount -= 1
             EndWhile
-            If (IsStruggling() && IsParentCellAttached(npc))
+            If (IsStruggling() && npc.Is3DLoaded())
                 ddLibs.Pant(npc)
             EndIf
             If (Utility.RandomInt() < 50)
@@ -2260,7 +2234,7 @@ Bool Function PlayStruggleAnimation(DDNF_NpcTracker npcTracker, zadLibs ddLibs, 
         ddLibs.SetAnimating(npc, false)
         Debug.SendAnimationEvent(npc, "IdleForceDefaultState")
     EndIf
-    If (!shortAnimationOnly && IsParentCellAttached(npc))
+    If (!shortAnimationOnly && npc.Is3DLoaded())
         ddLibs.SexlabMoan(npc)
     EndIf
     Return IsStruggling()
