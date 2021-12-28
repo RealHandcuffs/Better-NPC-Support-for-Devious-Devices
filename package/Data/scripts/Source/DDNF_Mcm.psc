@@ -550,6 +550,7 @@ Event OnUpdate()
         MainQuest.NpcTracker.Reset()
         MainQuest.NpcTracker.Start()
         MainQuest.NpcTracker.IsEnabled = true
+        MainQuest.RegisterForSingleUpdate(1.0) ; queue scan "soon"
         Debug.Notification("[BNSfDD] Started processing of NPCs.")
         If (MainQuest.NpcTracker.EnablePapyrusLogging)
             Debug.Trace("[DDNF] MCM: Enabled NPC processing.")

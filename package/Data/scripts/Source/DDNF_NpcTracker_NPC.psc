@@ -754,6 +754,9 @@ Event OnUpdate()
             EndIf
             ; modifying animations will cause a weird state where the NPC cannot draw weapons if they are currently drawn
             ; this can be reverted by changing the equipped weapons of the npc
+            If (useUnarmedCombatPackage && !UnequipWeapons(npc, npcTracker.DummyWeapon)) ; equipped shields during EvaluateAA can cause animation issues
+                npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
+            EndIf
             Bool restoreWeaponAccess = npc.IsWeaponDrawn()
             boundCombat.EvaluateAA(npc) ; very expensive call
             If (restoreWeaponAccess)
@@ -763,18 +766,9 @@ Event OnUpdate()
         EndIf
     EndIf
     If (useUnarmedCombatPackage)
-        If (!UnequipWeapons(npc, npcTracker.DummyWeapon))
-            npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
-        EndIf
         RegisterForAnimationEvent(npc, "BeginWeaponDraw") ; register even if we think that we are already registered
     ElseIf (_useUnarmedCombatPackage)
         UnregisterForAnimationEvent(npc, "BeginWeaponDraw")
-    EndIf
-    If (isGagged)
-        Shout equippedShout = npc.GetEquippedShout()
-        If (equippedShout != None)
-            npc.UnequipShout(equippedShout)
-        EndIf
     EndIf
     ; almost done, so do not abort and reschedule if another fixup is scheduled, just let things run their normal course instead
 
@@ -821,13 +815,28 @@ Event OnUpdate()
     If (enablePapyrusLogging)
         Debug.Trace("[DDNF] Succeeded fixing up devices of " + formIdAndName + ", running after-fixup actions.")
     EndIf
-    KickEscapeSystem(false)
-    If (!oldHasAnimation && _hasAnimation)
+    If (!oldHasAnimation && _hasAnimation && !_fixupLock)
         OnPackageStart(npc.GetCurrentPackage())
     EndIf
-    If (_useUnarmedCombatPackage)
-        UnequipEquippedArmors(npc, npcTracker.WeaponDisplayArmors, true)
-        UnequipEquippedAmmo(npc, npcTracker.VendorItemArrow)
+    If (_useUnarmedCombatPackage && !_fixupLock)
+        If (!UnequipWeapons(npc, npcTracker.DummyWeapon) && !_fixupLock)
+            npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
+        EndIf
+        If (!_fixupLock)
+            UnequipEquippedArmors(npc, npcTracker.WeaponDisplayArmors, true)
+        EndIf
+        If (!_fixupLock)
+            UnequipEquippedAmmo(npc, npcTracker.VendorItemArrow)
+        EndIf
+    EndIf
+    If (_isGagged && !_fixupLock)
+        Shout equippedShout = npc.GetEquippedShout()
+        If (equippedShout != None && !_fixupLock)
+            npc.UnequipShout(equippedShout)
+        EndIf
+    EndIf
+    If (!_fixupLock)
+        KickEscapeSystem(false)
     EndIf
     If (enablePapyrusLogging)
         Debug.Trace("[DDNF] Finished after-fixup actions for " + formIdAndName + ".")
