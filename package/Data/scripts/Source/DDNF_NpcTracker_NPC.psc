@@ -65,6 +65,7 @@ Function ForceRefTo(ObjectReference akNewRef) ; override
         Clear()
     Else
         parent.ForceRefTo(npc) ; no need to set GetNpcs()[aliasIndex] in DDNF_NpcTracker, caller already has done that
+        _fixupLock = true
         DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
         If (npcTracker.EnablePapyrusLogging)
             Debug.Trace("[DDNF] Start tracking " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ".")
@@ -81,7 +82,6 @@ Function ForceRefTo(ObjectReference akNewRef) ; override
         _isUnableToKick = false
         _fixupHighPriority = false
         _ignoreNotEquippedInNextFixup = false
-        _fixupLock = false
         _waitingForFixup = false
         _lastFixupRealTime = 0.0
         _quickEquipRunning = 0
@@ -105,6 +105,7 @@ Function ForceRefTo(ObjectReference akNewRef) ; override
         EndIf
         _lastEscapeAttemptGameTime = -99 ; special value
         _attemptedEscapeAgainstRenderedDevices = false
+        _fixupLock = false
     EndIf
 EndFunction
 
@@ -113,13 +114,19 @@ Function Clear() ; override
     Actor npc = GetReference() as Actor
     If (npc != None)
         ; acquire fixup lock, we do not want this to happen concurrent to a fixup
-        Int waitCount = 0
-        While (_fixupLock && waitCount < 40) ; but do not wait forever in case something is stuck
-            Utility.Wait(0.25)
-            waitCount += 1
-        EndWhile
-        _fixupLock = true
-        If (GetReference() == npc)
+        If (_fixupLock)
+            Int waitCount = 0
+            While (_fixupLock && waitCount < 40) ; but do not wait forever in case something is stuck
+                Utility.Wait(0.25)
+                waitCount += 1
+            EndWhile
+            If (GetReference() == npc)
+                _fixupLock = true
+            EndIf
+        Else
+            _fixupLock = true
+        EndIf
+        If (_fixupLock)
             GotoState("AliasEmpty")
             UnregisterForUpdate() ; may do nothing
             _waitingForFixup = false
@@ -146,14 +153,16 @@ Function Clear() ; override
             Armor[] emptyArray
             _renderedDevices = emptyArray
             ; finally kick from alias
+            Int aliasIndex = npcTracker.GetAliases().Find(Self)
+            Form[] npcs = npcTracker.GetNpcs()
             parent.Clear() ; will cause packages to change if necessary because they are attached to the alias
-            npcTracker.GetNpcs()[npcTracker.GetAliases().Find(Self)] = None ; required, parent may not be aware of the Clear call
+            npcs[aliasIndex] = None ; required, parent may not be aware of the Clear call
             If (npcTracker.EnablePapyrusLogging)
                 Debug.Trace("[DDNF] Stop tracking " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ".")
             EndIf
+            ; done
+            _fixupLock = false
         EndIf
-        ; done
-        _fixupLock = false
     EndIf
 EndFunction
 
@@ -450,6 +459,11 @@ EndFunction
 
 EndState
 
+
+Function RegisterForFixupWithScan(Float delay = 1.0)
+    _renderedDevicesFlags = -1
+    RegisterForFixup(delay)
+EndFunction
 
 Function RegisterForFixup(Float delay = 1.0) ; 1.0 is usually a good compromise between reactivity and collapsing multiple events into one update
     ; fixing the NPC in an update event has several important advantages:
@@ -1605,6 +1619,9 @@ Bool Function IsDeviousDeviesOutfit(Outfit maybeOutfit, DDNF_NpcTracker npcTrack
             index += 1
         EndWhile
         StorageUtil.SetIntValue(maybeOutfit, "ddnf_dd", isDeviousDevicesOutfit)
+        If (npcTracker.EnablePapyrusLogging)
+            Debug.Trace("[DDNF] StorageUtil: SetIntValue(" + DDNF_Game.FormIdAsString(maybeOutfit) + ", ddnf_dd, " + isDeviousDevicesOutfit + ")")
+        EndIf
     EndIf
     Return isDeviousDevicesOutfit > 0
 EndFunction

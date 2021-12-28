@@ -171,14 +171,17 @@ EndFunction
 ;
 ; Queue a NPC for fixup. This will add the NPC to the tracked NPCs if necessary.
 ;
-Int Function QueueForFixup(Actor npc)
+Int Function QueueForFixup(Actor npc, Bool scanForDevices)
     Form[] npcs = GetNpcs()
     Int index = npcs.Find(npc)
     If (index >= 0)
         Alias[] aliases = GetAliases()
         ReferenceAlias refAlias = aliases[index] as ReferenceAlias
-        (refAlias as DDNF_NpcTracker_NPC).OnCellDetach()
-        (refAlias as DDNF_NpcTracker_NPC).OnCellAttach()
+        If (scanForDevices)
+            (refAlias as DDNF_NpcTracker_NPC).RegisterForFixupWithScan()
+        Else
+            (refAlias as DDNF_NpcTracker_NPC).RegisterForFixup()
+        EndIf
         Return index
     EndIf
     Return Add(npc)
@@ -239,6 +242,10 @@ Function Clear(Bool clearStorageUtilData)
         refAlias.Clear()
         index += 1
     EndWhile
+    Alias[] emptyAliasArray
+    _cachedAliases = emptyAliasArray
+    Form[] emptyFormArray
+    _cachedNpcs = emptyFormArray
 EndFunction
 
 
@@ -282,6 +289,31 @@ Function HandleDeviceEquipped(Actor akActor, Armor inventoryDevice, Bool checkFo
                 DDLibs.LockDevice(akActor, inventoryDevice)
             EndIf
         EndIf
+    EndIf
+EndFunction
+
+
+;
+; Called after each scanner run of the main quest.
+;
+Function HandleScannerFinished(Int counter)
+    Alias[] aliases = _cachedAliases
+    Form[] npcs = _cachedNpcs
+    If (aliases.Length > 0 && npcs.Length > 0)
+        Int offset = (counter % 268435454) * 8
+        Int index = 0
+        While (index < 8)
+            ; detect and fix bad data in _cachedNpcs
+            Int arrayIndex = (offset + index) % aliases.Length
+            ObjectReference expected = (aliases[arrayIndex] as ReferenceAlias).GetReference()
+            If (npcs[arrayIndex] != expected) ; there seems to be a race condition with events somewhere...
+                If (EnablePapyrusLogging)
+                    Debug.Trace("[DDNF] Detected bad data at npcs[" + arrayIndex + "], fixing.")
+                EndIf
+                npcs[arrayIndex] = expected
+            EndIf
+            index += 1
+        EndWhile
     EndIf
 EndFunction
 
