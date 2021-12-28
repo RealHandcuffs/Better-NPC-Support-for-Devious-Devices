@@ -165,3 +165,6 @@ Version 0.5 RC 3
 
 Version 0.5
 - Same as 0.5 RC 3, other than version string
+
+Version 0.5.1
+- Hotfix: Tighten code to reduce chance of race condition and implement additional code to mitigate the problem

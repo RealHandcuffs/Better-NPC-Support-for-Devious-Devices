@@ -564,7 +564,7 @@ Event OnUpdate()
         If (MainQuest.NpcTracker.EnablePapyrusLogging)
             Debug.Trace("[DDNF] MCM: Fixup-on-close for " + DDNF_Game.FormIdAsString(fixupActor) + " " + fixupActor.GetDisplayName() + ".")
         EndIf
-        MainQuest.NpcTracker.QueueForFixup(fixupActor)
+        MainQuest.NpcTracker.QueueForFixup(fixupActor, true)
         Return
     EndIf
     If (_clearCacheOnMenuClose)

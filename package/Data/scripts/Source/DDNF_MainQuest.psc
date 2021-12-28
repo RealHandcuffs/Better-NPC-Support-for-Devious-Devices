@@ -18,6 +18,7 @@ DDNF_NpcTracker Property NpcTracker Auto
 Float Property SecondsBetweenScans = 8.0 Auto
 
 Alias[] _cachedScannerAliases ; performance optimization
+Int _counter
 
 
 Alias[] Function GetScannerAliases()
@@ -43,6 +44,7 @@ Function HandleGameLoaded(Bool upgrade)
     If (upgrade)
         Alias[] emptyArray
         _cachedScannerAliases = emptyArray
+        _counter = 0
     EndIf
     ; refresh event registrations
     RegisterForModEvent("DDI_DeviceEquipped", "OnDDI_DeviceEquipped")
@@ -93,12 +95,14 @@ Event OnUpdate()
         EndWhile
         NpcScanner.Reset()
         NpcScanner.Stop()
+        NpcTracker.HandleScannerFinished(_counter)
+        _counter += 1
         ; i.e. run again quickly if all scanner reference aliases were occupied, and all found NPCs are tracked
         ; otherwise slow down
         runInFastMode = index == addedNpcCount && addedNpcCount > 0
     Else
-        NpcTracker.Clear(true)
         runInFastMode = false
+        _counter = 0
     EndIf
     If (runInFastMode)
         RegisterForSingleUpdate(1.0)
