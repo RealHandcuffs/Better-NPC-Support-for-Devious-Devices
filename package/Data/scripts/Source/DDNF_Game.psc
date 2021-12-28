@@ -51,28 +51,15 @@ EndFunction
 ; Convert a form id to a string.
 ;
 String Function FormIdToString(Int formId) Global
-    String hex
     Int nibble = Math.LogicalAnd(formId, 0xf)
-    If (nibble <= 9)
-        hex = StringUtil.AsChar(48 + nibble)
-    Else
-        hex = StringUtil.AsChar(55 + nibble)
-    EndIf
+    String hex = StringUtil.GetNthChar("0123456789ABCDEF", nibble)
     Int shift = 4
     While (shift < 28)
         nibble = Math.LogicalAnd(Math.RightShift(formId, shift), 0xf)
-        If (nibble <= 9)
-            hex = StringUtil.AsChar(48 + nibble) + hex
-        Else
-            hex = StringUtil.AsChar(55 + nibble) + hex
-        EndIf
+        hex = StringUtil.GetNthChar("0123456789ABCDEF", nibble) + hex
         shift += 4
     EndWhile
     nibble = Math.RightShift(formId, 28)
-    If (nibble <= 9)
-        hex = StringUtil.AsChar(48 + nibble) + hex
-    Else
-        hex = StringUtil.AsChar(55 + nibble) + hex
-    EndIf
+    hex = StringUtil.GetNthChar("0123456789ABCDEF", nibble) + hex
     Return hex
 EndFunction
