@@ -49,7 +49,11 @@ Event OnPageReset(string page)
     SetCursorFillMode(TOP_TO_BOTTOM)
 
     DDNF_MainQuest_Player mqp = MainQuest.GetAlias(0) as DDNF_MainQuest_Player
-    SetTitleText("Better NPC Support for Devious Devices, v " + mqp.Version)
+    If (DDNF_Game.IsSpecialEdition())
+        SetTitleText("Better NPC Support for Devious Devices, v " + mqp.Version + " (SE)")
+    Else
+        SetTitleText("Better NPC Support for Devious Devices, v " + mqp.Version)
+    EndIf
 
     Bool isRunning = MainQuest.NpcTracker.IsRunning()
     Int flags = OPTION_FLAG_NONE
@@ -94,7 +98,7 @@ Event OnPageReset(string page)
         OptionCursorActor = AddMenuOption("NPC under crosshair", DDNF_Game.FormIdAsString(cursorActor), a_flags = OPTION_FLAG_HIDDEN)
         _npc = new String[3]
         _npc[0] = "Name: " + cursorActor.GetDisplayName()
-        String cursorActorModName = DDNF_Game.GetModName(cursorActor)
+        String cursorActorModName = DDNF_Game.GetModName(DDNF_Game.GetModId(cursorActor.GetFormID()))
         If (cursorActorModName == "")
             cursorActorModName = "(generated reference)"
         EndIf
@@ -104,7 +108,7 @@ Event OnPageReset(string page)
         If (cursorActorPackage != None)
             OptionPackage = AddMenuOption("  Current package", DDNF_Game.FormIdAsString(cursorActorPackage), a_flags = OPTION_FLAG_HIDDEN)
             _package = new string[1]
-            _package[0] = "Mod: " + DDNF_Game.GetModName(cursorActorPackage)
+            _package[0] = "Mod: " + DDNF_Game.GetModName(DDNF_Game.GetModId(cursorActorPackage.GetFormID()))
         EndIf
         DDNF_ExternalApi api = DDNF_ExternalApi.Get()
         Int trackingId = api.GetTrackingId(cursorActor)

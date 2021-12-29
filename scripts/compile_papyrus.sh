@@ -97,13 +97,14 @@ else
 fi
 
 # set up a function to compile all scripts in a folder using parallel execution
-# $1: input folder, must contain a "Source" folder
+# $1: full path to input folder
+# $2: relative path to output folder (in build folder)
 function compile_folder() {
   if [[ $QUIET == 0 ]]
   then
-    echo "Compiling: $1"
+    echo "Compiling: $2"
   fi
-  cd "$BASE_DIR/$1/Source"
+  cd "$1"
   files=()
   pids=()
   # the for loops works because the script source files have no whitespace in their names
@@ -112,9 +113,9 @@ function compile_folder() {
     files+=( "$f" )
     if [[ $SE == 0 ]]
     then
-      "$DIR_SKYRIM_CREATION_KIT/Papyrus Compiler/PapyrusCompiler.exe" "$f" -optimize -quiet -flags="$(cygpath -w "$PAPYRUS_SOURCE/TESV_Papyrus_Flags.flg")" -import="$(cygpath -w "$PAPYRUS_SOURCE");$(cygpath -w "$PAPYRUS_SOURCE/Dawnguard")" -output="$(cygpath -w "$BASE_DIR/build/$1")" &
+      "$DIR_SKYRIM_CREATION_KIT/Papyrus Compiler/PapyrusCompiler.exe" "$f" -optimize -quiet -flags="$(cygpath -w "$PAPYRUS_SOURCE/TESV_Papyrus_Flags.flg")" -import="$(cygpath -w "$PAPYRUS_SOURCE");$(cygpath -w "$PAPYRUS_SOURCE/Dawnguard")" -output="$(cygpath -w "$BASE_DIR/build/$2")" &
     else
-      "$DIR_SKYRIM_SE_CREATION_KIT/Papyrus Compiler/PapyrusCompiler.exe" "$f" -optimize -quiet -flags="$(cygpath -w "$PAPYRUS_SOURCE/TESV_Papyrus_Flags.flg")" -import="$(cygpath -w "$SKSE_SOURCE");$(cygpath -w "$PAPYRUS_SOURCE")" -output="$(cygpath -w "$BASE_DIR/build/$1")" &
+      "$DIR_SKYRIM_SE_CREATION_KIT/Papyrus Compiler/PapyrusCompiler.exe" "$f" -optimize -quiet -flags="$(cygpath -w "$PAPYRUS_SOURCE/TESV_Papyrus_Flags.flg")" -import="$(cygpath -w "$SKSE_SOURCE");$(cygpath -w "$PAPYRUS_SOURCE")" -output="$(cygpath -w "$BASE_DIR/build/$2")" &
     fi
     pids+=( "$!" )
   done
@@ -139,5 +140,15 @@ function compile_folder() {
   cd "$BASE_DIR"
 }
 
-# call the function for the package/Data/scripts folder
-compile_folder "package/Data/scripts"
+# copy sources from the package/Data/scripts folder to a temporary folder and compile them
+TEMP_DIR=$(mktemp -d)
+cd "$BASE_DIR/package/Data/scripts/Source"
+cp *.psc "$TEMP_DIR"
+if [[ $SE == 1 ]]
+then
+  cd "$BASE_DIR/package/Data_SE/scripts/Source"
+  cp *.psc "$TEMP_DIR"
+fi
+cd "$BASE_DIR"
+compile_folder "$TEMP_DIR" "package/Data/scripts"
+rm -rf "$TEMP_DIR"

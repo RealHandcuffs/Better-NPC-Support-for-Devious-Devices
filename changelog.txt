@@ -169,10 +169,12 @@ Version 0.5
 Version 0.5.1
 - Hotfix: Tighten code to reduce chance of race condition and implement additional code to mitigate the problem
 
-Version 0.6 TODO
+Version 0.6 beta 1
 - Make bound NPCs behave defensively even if bound combat is enabled
 - Do not make bound NPCs behave defensively if they are followers and player is bound, too
 - Allow non-followers to use bound combat, too, if it is enabled in Devious Devices settings
 - Unequip arrows too when unequipping weapons from bound NPCs
 - Ignore disabled NPCs
 - Various optimizations
+- Build system: Support different files for classic skyrim and special edition
+- Make MCM mod name display work for esl's in special edition (this requires se-only script changes)
