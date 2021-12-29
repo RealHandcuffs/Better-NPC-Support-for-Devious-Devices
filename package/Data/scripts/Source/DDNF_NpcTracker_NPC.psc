@@ -1628,10 +1628,10 @@ Int Function PerformEscapeAttempt(Bool suppressNotifications)
     npc.EvaluatePackage()
     Int remainingDevicesCount = npc.GetItemCount(npcTracker.DDLibs.zad_Lockable) + npc.GetItemCount(npcTracker.DDLibs.zad_DeviousPlug)
     Bool escapeAttemptInterrupted = !IsStruggling()
-    If (!escapeAttemptInterrupted)
-        GotoStateNotStruggling()
-    EndIf
     If (npc == (GetReference() as Actor))
+        If (!escapeAttemptInterrupted)
+            GotoStateNotStruggling()
+        EndIf
         _lastEscapeAttemptGameTime = Utility.GetCurrentGameTime()
     EndIf
     If (npcTracker.EnablePapyrusLogging)
