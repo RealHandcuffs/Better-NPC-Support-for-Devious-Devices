@@ -190,19 +190,20 @@ EndFunction
 ; Try to choose a device that is a good candidate for unequipping on a currently tracked NPC.
 ; If unequipSelf is true then this function will assume that the NPC is trrying to unequip the device
 ; themselves, if false then this function will assume that somebody else is unequipping it.
+; Unset respectCooldowns to ignore device cooldowns.
 ; This will return None if no device can be unequipped.
 ; WARNING: This function has to do a complex analysis of all equipped devices and is therefore slow.
 ;
-Armor Function ChooseDeviceForUnequip(Int trackingId, Bool unequipSelf)
+Armor Function ChooseDeviceForUnequip(Int trackingId, Bool unequipSelf, Bool respectCooldowns = true)
     ChooseDeviceForUnequipWithIgnoredDevices(trackingId, unequipSelf, new Armor[1], 0)
 EndFunction
 
-Armor Function ChooseDeviceForUnequipWithIgnoredDevices(Int trackingId, Bool unequipSelf, Armor[] devicesToIgnore, Int devicesToIgnoreCount)
+Armor Function ChooseDeviceForUnequipWithIgnoredDevices(Int trackingId, Bool unequipSelf, Armor[] devicesToIgnore, Int devicesToIgnoreCount, Bool respectCooldowns = true)
     If (trackingId >= 0)
         Alias[] aliases = ((Self as Quest) as DDNF_NpcTracker).GetAliases()
         If (trackingId < aliases.Length)
             DDNF_NpcTracker_NPC npcTracker = aliases[trackingId] as DDNF_NpcTracker_NPC
-            Return npcTracker.ChooseDeviceForUnequip(unequipSelf, devicesToIgnore, devicesToIgnoreCount, false)
+            Return npcTracker.ChooseDeviceForUnequip(unequipSelf, devicesToIgnore, devicesToIgnoreCount, false, respectCooldowns)
         EndIf
     EndIf
     Return None
@@ -212,14 +213,15 @@ EndFunction
 ;
 ; Let a currently tracked NPC attempt to escape either one or all devices. This function can take a long time,
 ; up to several minutes. Set suppressNotifications to disable notifications even if enabled in MCM.
+; Unset respectCooldowns to ignore device cooldowns.
 ; Returns -1 if the attempt was blocked (e.g. another escape attempt already ongoing), the number of removed devices otherwise.
 ;
-Int Function PerformEscapeAttempt(Int trackingId, Bool suppressNotifications = false)
+Int Function PerformEscapeAttempt(Int trackingId, Bool suppressNotifications = false, Bool respectCooldowns = true)
     If (trackingId >= 0)
         Alias[] aliases = ((Self as Quest) as DDNF_NpcTracker).GetAliases()
         If (trackingId < aliases.Length)
             DDNF_NpcTracker_NPC npcTracker = aliases[trackingId] as DDNF_NpcTracker_NPC
-            Return npcTracker.PerformEscapeAttempt(suppressNotifications)
+            Return npcTracker.PerformEscapeAttempt(suppressNotifications, respectCooldowns)
         EndIf
     EndIf
     Return -1

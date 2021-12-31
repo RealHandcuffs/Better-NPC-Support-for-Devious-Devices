@@ -255,10 +255,10 @@ Event OnOptionDefault(Int option)
             Debug.Trace("[DDNF] MCM: Disable struggling if pointless.")
         EndIf
     ElseIf (option == OptionCurrentFollowerStruggleFrequency)
-        If (MainQuest.NpcTracker.CurrentFollowerStruggleFrequency != 2)
-            MainQuest.NpcTracker.CurrentFollowerStruggleFrequency = 2
-            SetMenuOptionValue(OptionCurrentFollowerStruggleFrequency, ToStruggleFrequencyString(2))
-            Debug.Trace("[DDNF] MCM: Set current follower struggle frequency to 2.")
+        If (MainQuest.NpcTracker.CurrentFollowerStruggleFrequency != -1)
+            MainQuest.NpcTracker.CurrentFollowerStruggleFrequency = -1
+            SetMenuOptionValue(OptionCurrentFollowerStruggleFrequency, ToStruggleFrequencyString(-1))
+            Debug.Trace("[DDNF] MCM: Set current follower struggle frequency to -1.")
         EndIf
     ElseIf (option == OptionNotifyPlayerOfCurrentFollowerStruggle)
         If (!MainQuest.NpcTracker.NotifyPlayerOfCurrentFollowerStruggle || MainQuest.NpcTracker.OnlyDisplayFinalSummaryMessage)
@@ -468,7 +468,7 @@ Event OnOptionMenuOpen(Int option)
         SetMenuDialogDefaultIndex(MainQuest.NpcTracker.AbortStrugglingAfterFailedDevices)
     ElseIf (option == OptionCurrentFollowerStruggleFrequency)
         SetMenuDialogOptions(GetStruggleFrequencyMenuOptions(8))
-        SetMenuDialogDefaultIndex(MainQuest.NpcTracker.CurrentFollowerStruggleFrequency)
+        SetMenuDialogDefaultIndex(MainQuest.NpcTracker.CurrentFollowerStruggleFrequency + 1)
     ElseIf (option == OptionNotifyPlayerOfCurrentFollowerStruggle)
         String[] notificationOptions = new String[3]
         notificationOptions[0] = "No notifications."
@@ -484,7 +484,7 @@ Event OnOptionMenuOpen(Int option)
         SetMenuDialogOptions(notificationOptions)
     ElseIf (option == OptionOtherNpcStruggleFrequency)
         SetMenuDialogOptions(GetStruggleFrequencyMenuOptions(8))
-        SetMenuDialogDefaultIndex(MainQuest.NpcTracker.OtherNpcStruggleFrequency)
+        SetMenuDialogDefaultIndex(MainQuest.NpcTracker.OtherNpcStruggleFrequency + 1)
     ElseIf (option == OptionCursorActor)
         SetMenuDialogOptions(_npc)
     ElseIf (option == OptionPackage)
@@ -509,10 +509,10 @@ Event OnOptionMenuAccept(Int option, Int index)
             EndIf
         EndIf
     ElseIf (option == OptionCurrentFollowerStruggleFrequency)
-        If (index >= 0 && MainQuest.NpcTracker.CurrentFollowerStruggleFrequency != index)
-            MainQuest.NpcTracker.CurrentFollowerStruggleFrequency = index
-            SetMenuOptionValue(OptionCurrentFollowerStruggleFrequency, ToStruggleFrequencyString(index))
-            Debug.Trace("[DDNF] MCM: Set current follower struggle frequency to " + index + ".")
+        If (index >= 0 && MainQuest.NpcTracker.CurrentFollowerStruggleFrequency != (index - 1))
+            MainQuest.NpcTracker.CurrentFollowerStruggleFrequency = index - 1
+            SetMenuOptionValue(OptionCurrentFollowerStruggleFrequency, ToStruggleFrequencyString(index - 1))
+            Debug.Trace("[DDNF] MCM: Set current follower struggle frequency to " + MainQuest.NpcTracker.CurrentFollowerStruggleFrequency + ".")
         EndIf
     ElseIf (option == OptionNotifyPlayerOfCurrentFollowerStruggle)
         Bool notifyPlayer = index > 0
@@ -525,10 +525,10 @@ Event OnOptionMenuAccept(Int option, Int index)
             Debug.Trace("[DDNF] MCM: Set notifications for current follower struggling to " + notificationString + ".")
         EndIf
     ElseIf (option == OptionOtherNpcStruggleFrequency)
-        If (index >= 0 && MainQuest.NpcTracker.OtherNpcStruggleFrequency != index)
-            MainQuest.NpcTracker.OtherNpcStruggleFrequency = index
-            SetMenuOptionValue(OptionOtherNpcStruggleFrequency, ToStruggleFrequencyString(index))
-            Debug.Trace("[DDNF] MCM: Set other npc struggle frequency to " + index + ".")
+        If (index >= 0 && MainQuest.NpcTracker.OtherNpcStruggleFrequency != (index - 1))
+            MainQuest.NpcTracker.OtherNpcStruggleFrequency = index - 1
+            SetMenuOptionValue(OptionOtherNpcStruggleFrequency, ToStruggleFrequencyString(index - 1))
+            Debug.Trace("[DDNF] MCM: Set other npc struggle frequency to " + MainQuest.NpcTracker.OtherNpcStruggleFrequency + ".")
         EndIf
     EndIf
 EndEvent
@@ -592,7 +592,7 @@ Event OnUpdate()
         DDNF_ExternalApi api = DDNF_ExternalApi.Get()
         Int trackingId = api.GetOrCreateTrackingId(escapeActor)
         If (trackingId >= 0)
-            api.PerformEscapeAttempt(trackingId)
+            api.PerformEscapeAttempt(trackingId, respectCooldowns = false)
         EndIf
         Return
     EndIf
@@ -624,6 +624,9 @@ EndFunction
 
 
 String Function ToStruggleFrequencyString(Int value) Global
+    If (value < 0)
+        Return "(by device)"
+    EndIf
     If (value == 0)
         Return "(never)"
     EndIf
@@ -631,10 +634,10 @@ String Function ToStruggleFrequencyString(Int value) Global
 EndFunction
 
 String[] Function GetStruggleFrequencyMenuOptions(Int maxHours) Global
-    String[] options = Utility.CreateStringArray(maxHours + 1)
-    Int index = 0
+    String[] options = Utility.CreateStringArray(maxHours + 2)
+    Int index = -1
     While (index <= maxHours)
-        options[index] = ToStruggleFrequencyString(index)
+        options[index + 1] = ToStruggleFrequencyString(index)
         index += 1
     EndWhile
     Return options

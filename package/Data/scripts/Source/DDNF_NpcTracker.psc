@@ -36,10 +36,10 @@ Bool Property AllowManipulationOfDevices = True Auto
 Bool Property EscapeSystemEnabled = False Auto
 Bool Property StruggleIfPointless = False Auto
 Int Property AbortStrugglingAfterFailedDevices = 3 Auto ; 0 disables
-Int Property CurrentFollowerStruggleFrequency = 2 Auto ; 0 disables
+Int Property CurrentFollowerStruggleFrequency = -1 Auto ; 0 disables, -1 for auto
 Bool Property NotifyPlayerOfCurrentFollowerStruggle = True Auto
 Bool Property OnlyDisplayFinalSummaryMessage = True Auto
-Int Property OtherNpcStruggleFrequency = 0 Auto ; 0 disables
+Int Property OtherNpcStruggleFrequency = 0 Auto ; 0 disables, -1 for auto
 
 Float Property MaxFixupsPerThreeSeconds = 3.0 Auto
 
@@ -517,4 +517,37 @@ Function LinkInventoryDeviceAndRenderedDevice(Armor inventoryDevice, Armor rende
         Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + inventoryFormId + ", ddnf_r, " + renderedFormId + ")")
         Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + renderedFormId + ", ddnf_i, " + inventoryFormId + ")")
     EndIf
+EndFunction
+
+
+;
+; Get or create a unique string tag for a form.
+;
+String Function GetOrCreateUniqueTag(Form item) Global
+    If (item == None)
+        Return ""
+    EndIf
+    String tag = StorageUtil.GetStringValue(item, "ddnf_t", "")
+    If (tag == "")
+        DDNF_NpcTracker tracker = Get()
+        Int seed = StorageUtil.AdjustIntValue(None, "ddnf_t", 1)
+        If (tracker.EnablePapyrusLogging)
+            Debug.Trace("[DDNF] StorageUtil: AdjustIntValue(None, ddnf_t, 1) -> " + seed)
+        EndIf
+        tag = StringUtil.GetNthChar("0123456789abcdefghijklmnopqrstuvwxyz", seed % 36)
+        While (seed >= 36)
+            seed = seed / 36
+            tag = StringUtil.GetNthChar("0123456789abcdefghijklmnopqrstuvwxyz", seed % 36) + tag
+        EndWhile
+        String maybeTag = StorageUtil.GetStringValue(item, "ddnf_t", "") ; reduce chance of race condition
+        If (maybeTag == "")
+            StorageUtil.SetStringValue(item, "ddnf_t", tag)
+            If (tracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] StorageUtil: SetStringValue(" + DDNF_Game.FormIdAsString(item) + ", ddnf_t, " + tag + ")")
+            EndIf
+        Else
+            tag = maybeTag
+        EndIf
+    EndIf
+    Return tag
 EndFunction

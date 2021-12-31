@@ -178,3 +178,8 @@ Version 0.6 beta 1
 - Various optimizations
 - Build system: Support different files for classic skyrim and special edition
 - Make MCM mod name display work for esl's in special edition (this requires se-only script changes)
+
+Version 0.6 beta 2
+- NPCs will now observe device cooldowns when trying to escape
+- Add new struggle frequency option "(by device)", this will choose struggle frequency automatically according to worn devices
+- Make "(by device)" default struggle frequency for followers (only new games, existing games will continue to use the currently configured value)
