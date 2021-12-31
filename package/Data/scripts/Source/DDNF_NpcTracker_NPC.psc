@@ -2089,8 +2089,7 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool struggle
     String storageUtilTag = "ddnf_e_t" + DDNF_NpcTracker.GetOrCreateUniqueTag(device)
     Bool doNotStruggle = false
     If (chanceZeroPercent && !struggleIfKnownToBePointless)
-        Float deviceMinGameTime = StorageUtil.GetFloatValue(npc, storageUtilTag, 0)
-        doNotStruggle = deviceMinGameTime > 0 && (Utility.GetCurrentGameTime() - deviceMinGameTime) < 24 ; has npc recent experience with device
+        doNotStruggle = StorageUtil.HasFloatValue(npc, storageUtilTag) ; npc has struggled against device in past
     EndIf
     String npcFormId = ""
     String npcFormIdAndName = ""

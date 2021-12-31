@@ -334,6 +334,17 @@ Function HandleDeviceRemoved(Actor akActor, Armor inventoryDevice)
             EndWhile
         EndIf
     EndIf
+    Utility.Wait(2) ; allow some time for things to work
+    Armor renderedDevice = GetRenderedDevice(inventoryDevice, false)
+    If (akActor.GetItemCount(renderedDevice) == 0)
+        String storageUtilTag = "ddnf_e_t" + DDNF_NpcTracker.GetOrCreateUniqueTag(inventoryDevice)
+        If (StorageUtil.HasFloatValue(akActor, storageUtilTag))
+            StorageUtil.UnsetFloatValue(akActor, storageUtilTag)
+            If (EnablePapyrusLogging)
+                Debug.Trace("[DDNF] StorageUtil: UnsetFloatValue(" + DDNF_Game.FormIdAsString(akActor) + ", " + storageUtilTag + ")")
+            EndIf
+        EndIf
+    EndIf
 EndFunction
 
 
