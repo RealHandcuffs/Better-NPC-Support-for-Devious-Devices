@@ -189,3 +189,4 @@ Version 0.6 beta 2
 
 Version 0.6 beta 3
 - Fix lockpick escape: NPCs first need to access lock before they can pick it, just like players
+- Apply Devious Devices difficulty modifier to cooldowns
