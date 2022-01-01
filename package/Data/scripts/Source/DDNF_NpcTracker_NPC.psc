@@ -2275,6 +2275,9 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool struggle
             EndIf
         EndIf
     Else
+        If (cooldown < 0.5)
+            cooldown = 0.5 ; clamp to [0.5, infinite]
+        EndIf
         Float cooldownGameTime = Utility.GetCurrentGameTime() + cooldown / 24
         StorageUtil.SetFloatValue(npc, storageUtilTag, cooldownGameTime)
         If (npcTracker.EnablePapyrusLogging)
