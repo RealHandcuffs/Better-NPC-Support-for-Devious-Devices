@@ -78,18 +78,17 @@ Event OnPageReset(string page)
     SetCursorPosition(1)
 
     AddHeaderOption("Escape System", a_flags = flags)
-    Bool isEscapeSystemEnabed = MainQuest.NpcTracker.EscapeSystemEnabled
     OptionEnableEscapeSystem = AddToggleOption("Allow NPCs to struggle", MainQuest.NpcTracker.EscapeSystemEnabled, a_flags = flags)
-    OptionAbortStrugglingAfterFailedDevices = AddMenuOption("Abort struggling after", ToAbortStrugglingString(MainQuest.NpcTracker.AbortStrugglingAfterFailedDevices, true), a_flags = flags)
-    OptionStruggleIfPointless = AddToggleOption("Struggle even if pointless", MainQuest.NpcTracker.StruggleIfPointless, a_flags = flags)
     Int flagsEscapeSystem = flags
-    If (!isEscapeSystemEnabed)
+    If (!MainQuest.NpcTracker.EscapeSystemEnabled)
         flagsEscapeSystem = OPTION_FLAG_DISABLED
     EndIf
+    OptionAbortStrugglingAfterFailedDevices = AddMenuOption("Abort struggling after", ToAbortStrugglingString(MainQuest.NpcTracker.AbortStrugglingAfterFailedDevices, true), a_flags = flagsEscapeSystem)
+    OptionAllowEscapeByPickingLocks = AddMenuOption("Allow Escape by Lockpicking", ToEscapeByLockpickingString(MainQuest.NpcTracker.AllowEscapeByPickingLocks), a_flags = flagsEscapeSystem)
+    OptionStruggleIfPointless = AddToggleOption("Struggle even if pointless", MainQuest.NpcTracker.StruggleIfPointless, a_flags = flagsEscapeSystem)
     OptionCurrentFollowerStruggleFrequency = AddMenuOption("Followers: Frequency", ToStruggleFrequencyString(MainQuest.NpcTracker.CurrentFollowerStruggleFrequency), a_flags = flagsEscapeSystem)
     OptionNotifyPlayerOfCurrentFollowerStruggle = AddMenuOption("Followers: Notifications", ToNotificationString(MainQuest.NpcTracker.NotifyPlayerOfCurrentFollowerStruggle, MainQuest.NpcTracker.OnlyDisplayFinalSummaryMessage), a_flags = flagsEscapeSystem)
     OptionOtherNpcStruggleFrequency = AddMenuOption("Other NPCs: Frequency", ToStruggleFrequencyString(MainQuest.NpcTracker.OtherNpcStruggleFrequency), a_flags = flagsEscapeSystem)
-    OptionAllowEscapeByPickingLocks = AddMenuOption("Allow Escape by Lockpicking", ToEscapeByLockpickingString(MainQuest.NpcTracker.AllowEscapeByPickingLocks), a_flags = flagsEscapeSystem)
 
     AddHeaderOption("Debug Settings")
     OptionEnablePapyrusLogging = AddToggleOption("Enable payprus logging", MainQuest.NpcTracker.EnablePapyrusLogging)
