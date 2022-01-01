@@ -2023,7 +2023,7 @@ EndFunction
 
 
 ;
-; Make the NPC try to escape from a device by opening locks or struggling.
+; Make the NPC try to escape from a device by opening locks, picking locks or struggling.
 ; Return values: Array with single false value on aborted attempt (quest item, blocked by another device, ...),
 ; otherwise array with the following values: 0 - success, 1 - failed because chance was 0%, 2 - did not struggle because chance was 0%
 ;
@@ -2042,6 +2042,7 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool struggle
     If (!CheckIfUnequipPossible(npc, device, renderedDevice, ddLibs, true, true)) ; allow quest devices here, we will check zad_BlockGeneric/zad_QuestItem later
         Return new Bool[1]
     EndIf
+    Bool enablePapyrusLogging = npcTracker.EnablePapyrusLogging
 
     ; analyze the device and calculate escape chances
     ObjectReference tempRef = ddLibs.PlayerRef.PlaceAtMe(device, abInitiallyDisabled = true)
@@ -2050,13 +2051,14 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool struggle
         tempRef.Delete()
         Return new Bool[1]
     EndIf
-    Int deviceFlags = AnalyzeMaybeDevice(ddLibs, ddLibs.zad_Lockable, true, ddLibs.zad_DeviousPlug, true, renderedDevice, false, npcTracker.enablePapyrusLogging)
+    Int deviceFlags = AnalyzeMaybeDevice(ddLibs, ddLibs.zad_Lockable, true, ddLibs.zad_DeviousPlug, true, renderedDevice, false, enablePapyrusLogging)
     Bool deviceIsHeavyBondage = Math.LogicalAnd(deviceFlags, 4) == 4
     Bool deviceIsBondageMittens = Math.LogicalAnd(deviceFlags, 8) == 8
     Bool handsBlocked = deviceIsBondageMittens || npc.GetItemCount(ddLibs.zad_DeviousBondageMittens) > 0 || npc.GetItemCount(ddLibs.zad_DeviousStraitJacket) > 0
     Bool deviceIsQuestDevice = device.HasKeyword(ddLibs.zad_BlockGeneric) || device.HasKeyword(ddLibs.zad_QuestItem) || renderedDevice.HasKeyword(ddLibs.zad_BlockGeneric) || renderedDevice.HasKeyword(ddLibs.zad_QuestItem)
     Float difficultyModifier = equipScript.CalculateDifficultyModifier(true)
     Float lockAccessChance = 100
+    Float rawLockAccessChance = 100
     If (equipScript.LockAccessDifficulty > 0)
         Float moddedLockAccessDifficulty = equipScript.LockAccessDifficulty * (2 - difficultyModifier) ; difficulty modifier is (1 + bonus), revert to (1 - bonus) for access difficulty
         If (moddedLockAccessDifficulty > 95 && equipScript.LockAccessDifficulty < 100)
@@ -2069,93 +2071,112 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool struggle
             EndIf
         EndIf
         lockAccessChance = Clamp(100 - moddedLockAccessDifficulty, 0, 100)
+        rawLockAccessChance = Clamp(100 - equipScript.LockAccessDifficulty, 0, 100)
     EndIf
     Float unlockChance = 0
     Float lockpickChance = 0
     Form lockpick = None
-    If (!handsBlocked && !deviceIsQuestDevice)
-        If (lockAccessChance > 0 && (equipScript.deviceKey == None || npc.GetItemCount(equipScript.deviceKey) >= equipScript.NumberOfKeysNeeded))
-            unlockChance = lockAccessChance
-        EndIf
-        If (allowPickingLocks && equipScript.LockPickEscapeChance > 0)
-            If (equipScript.AllowLockPick && npc.GetItemCount(equipScript.Lockpick))
-                lockpickChance = Clamp(equipScript.LockPickEscapeChance * difficultyModifier, 0, lockAccessChance * 0.75) ; additionally clamp max lockpick chance to make matters more consistent
-                lockpick = equipScript.Lockpick
-            ElseIf (equipScript.AllowedLockPicks.Length > 0)
-                Int index = equipScript.AllowedLockPicks.Length - 1 ; loop from end just like zadEquipScript
-                While (index >= 0)
-                    If (npc.GetItemCount(equipScript.AllowedLockPicks[index]) > 0)
-                        lockpickChance = Clamp(equipScript.LockPickEscapeChance * difficultyModifier, 0, lockAccessChance * 0.75) ; clamp as above
-                        lockpick = equipScript.AllowedLockPicks[index]
-                        index = 0 ; early loop exit
-                    EndIf
-                    index -= 1
-                EndWhile
-            EndIf
-        EndIf
-    EndIf
     Float struggleChance = 0
     If (!deviceIsQuestDevice)
+        If (!handsBlocked)
+            If (lockAccessChance > 0 && (equipScript.deviceKey == None || npc.GetItemCount(equipScript.deviceKey) >= equipScript.NumberOfKeysNeeded))
+                unlockChance = lockAccessChance
+            EndIf
+            If (allowPickingLocks && equipScript.LockPickEscapeChance > 0)
+                If (equipScript.AllowLockPick && npc.GetItemCount(equipScript.Lockpick))
+                    lockpickChance = Clamp(equipScript.LockPickEscapeChance * difficultyModifier, 0, 100)
+                    lockpick = equipScript.Lockpick
+                ElseIf (equipScript.AllowedLockPicks.Length > 0)
+                    Int index = equipScript.AllowedLockPicks.Length - 1 ; loop from end just like zadEquipScript
+                    While (index >= 0)
+                        If (npc.GetItemCount(equipScript.AllowedLockPicks[index]) > 0)
+                            lockpickChance = Clamp(equipScript.LockPickEscapeChance * difficultyModifier, 0, 100)
+                            lockpick = equipScript.AllowedLockPicks[index]
+                            index = 0 ; early loop exit
+                        EndIf
+                        index -= 1
+                    EndWhile
+                EndIf
+            EndIf
+        EndIf
         struggleChance = Clamp(equipScript.BaseEscapeChance * difficultyModifier, 0, 100)
     EndIf
 
-    ; try to escape, notifying the player if the option is set
-    String possessive = ""
-    If (notifyPlayer)
-       If (npc.GetLeveledActorBase().GetSex() == 0)
-           possessive = " his "
-       Else
-           possessive = " her "
-       EndIf
+    ; select a method for escaping
+    Int escapeMethod = -1 ; -1: do not even try, 0: unlock, 1: pick lock, 2: struggle
+    Float finalChance = 0
+    If (unlockChance >= 100) ; always escape using unlocking if chance is 100%
+        escapeMethod = 0
+        finalChance = unlockChance
+    Else
+        If (unlockChance > 0) ; prefer unlocking over picking the lock if possible
+            escapeMethod = 0
+            finalChance = unlockChance
+        ElseIf (rawLockAccessChance > 0 && lockpickChance > 0)
+            escapeMethod = 1
+            finalChance = (rawLockAccessChance / 100) * lockpickChance
+        EndIf
+        If (struggleChance > finalChance || struggleChance == finalChance && struggleChance > 0) ; prefer struggling over other escape methods if chance is the same
+            escapeMethod = 2
+            finalChance = struggleChance
+        EndIf
     EndIf
-    Bool success
-    Float cooldown
-    Bool chanceZeroPercent = unlockChance == 0 && lockpickChance == 0 && struggleChance == 0
     String storageUtilTag = "ddnf_e_t" + DDNF_NpcTracker.GetOrCreateUniqueTag(device)
-    Bool doNotStruggle = false
-    If (chanceZeroPercent && !struggleIfKnownToBePointless)
-        doNotStruggle = StorageUtil.HasFloatValue(npc, storageUtilTag) ; npc has struggled against device in past
+    If (escapeMethod == -1) ; implies finalChance == 0
+        If (struggleIfKnownToBePointless || !StorageUtil.HasFloatValue(npc, storageUtilTag)) ; if the tag is set, the NPC "knows" the device
+            escapeMethod = 2
+        EndIf
     EndIf
+
+    ; try to escape using the selected method, notifying the player if the option is set
     String npcFormId = ""
     String npcFormIdAndName = ""
     String deviceFormIdAndName = ""
-    If (npcTracker.EnablePapyrusLogging)
+    If (enablePapyrusLogging)
         npcFormId = DDNF_Game.FormIdAsString(npc)
         npcFormIdAndName = npcFormId + " " + npc.GetDisplayName()
         deviceFormIdAndName = DDNF_Game.FormIdAsString(device) + " " + device.GetName()
-    EndIf
-    If (doNotStruggle)
-        If (npcTracker.EnablePapyrusLogging)
-            Debug.Trace("[DDNF] " + npcFormIdAndName + " not struggling to escape " + deviceFormIdAndName + " (known to be pointless).")
+        If (allowPickingLocks)
+            Debug.Trace("[DDNF] " + npcFormIdAndName + " trying to escape " + deviceFormIdAndName + ": escapeMethod=" + escapeMethod + ", finalChance=" + finalChance + " (unlockChance=" + unlockChance + ", rawLockAccessChance=" + rawLockAccessChance + ", lockpickChance=" + lockpickChance + ", struggleChance=" + struggleChance + ").")
+        Else
+            Debug.Trace("[DDNF] " + npcFormIdAndName + " trying to escape " + deviceFormIdAndName + ": escapeMethod=" + escapeMethod + ", finalChance=" + finalChance + " (unlockChance=" + unlockChance + ", struggleChance=" + struggleChance + ").")
         EndIf
-        success = false
+    EndIf
+    Bool success = false
+    Bool aborted = false
+    Float cooldown = 0
+
+    ; -1: do not struggle
+    If (escapeMethod == -1)
         cooldown = equipScript.EscapeCooldown
         If (cooldown < equipScript.UnlockCooldown)
             cooldown = equipScript.UnlockCooldown ; use the worse value if chance is zero percent
         EndIf
     Else
-        If (npcTracker.EnablePapyrusLogging)
-            If (allowPickingLocks)
-                Debug.Trace("[DDNF] " + npcFormIdAndName + " trying to escape " + deviceFormIdAndName + ": unlockChance=" + unlockChance + ", lockpickChance=" + lockpickChance + ", struggleChance=" + struggleChance + ".")
-            Else
-                Debug.Trace("[DDNF] " + npcFormIdAndName + " trying to escape " + deviceFormIdAndName + ": unlockChance=" + unlockChance + ", struggleChance=" + struggleChance + ".")
-            EndIf
-        EndIf
         Faction strugglingFaction = None
         If (addToStrugglingFactionIfNecessary)
             strugglingFaction = npcTracker.Struggling
         EndIf
-        Bool useUnlockAction = unlockChance > 0 && unlockChance >= struggleChance
-        Float successChance
-        If (useUnlockAction)
-            successChance = unlockChance
+        String possessive = ""
+        String npcName = ""
+        If (notifyPlayer)
+           If (npc.GetLeveledActorBase().GetSex() == 0)
+               possessive = " his "
+           Else
+               possessive = " her "
+           EndIf
+           npcName = npc.GetDisplayName()
+        EndIf
+        
+        ; 0: unlock
+        If (escapeMethod == 0)
             If (unlockChance == 100 && !deviceIsHeavyBondage && !deviceIsBondageMittens)
                 String struggleMessage = ""
                 If (notifyPlayer)
                     If (equipScript.deviceKey == None)
-                        struggleMessage = npc.GetDisplayName() + " is removing" + possessive + equipScript.deviceName
+                        struggleMessage = npcName + " is removing" + possessive + equipScript.deviceName
                     Else
-                        struggleMessage = npc.GetDisplayName() + " is unlocking" + possessive + equipScript.deviceName
+                        struggleMessage = npcName + " is unlocking" + possessive + equipScript.deviceName
                     EndIf
                 EndIf
                 success = PlayStruggleAnimation(npcTracker, ddLibs, equipScript, npc, struggleMessage, strugglingFaction, true) ; only play short animation
@@ -2163,106 +2184,168 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool struggle
                 String struggleMessage = ""
                 If (notifyPlayer)
                     If (equipScript.deviceKey == None)
-                        struggleMessage = npc.GetDisplayName() + " is strugging to remove" + possessive + equipScript.deviceName
+                        struggleMessage = npcName + " is struggling to remove" + possessive + equipScript.deviceName
                     Else
-                        struggleMessage = npc.GetDisplayName() + " is strugging to unlock" + possessive + equipScript.deviceName
+                        struggleMessage = npcName + " is struggling to unlock" + possessive + equipScript.deviceName
                     EndIf
                 EndIf
                 success = PlayStruggleAnimation(npcTracker, ddLibs, equipScript, npc, struggleMessage, strugglingFaction, false)
             EndIf
-            cooldown = equipScript.UnlockCooldown
-        Else
-            String struggleMessage = ""
-            If (lockpickChance > struggleChance)
-                successChance = lockpickChance
-                If (notifyPlayer)
-                    struggleMessage = npc.GetDisplayName() + " is strugging to pick the lock of" + possessive + equipScript.deviceName
+            If (success) ; recheck conditions before random roll
+                success = CheckIfUnequipPossible(npc, device, renderedDevice, ddLibs, true, false) && npc.GetItemCount(ddLibs.zad_DeviousBondageMittens) == 0 && npc.GetItemCount(ddLibs.zad_DeviousStraitJacket) == 0
+                If (success)
+                    success = equipScript.deviceKey == None || npc.GetItemCount(equipScript.deviceKey) >= equipScript.NumberOfKeysNeeded
+                EndIf
+            EndIf
+            If (success)
+                If (unlockChance < 100)
+                    Float randomRollResult = Utility.RandomFloat(0, 99.9)
+                    If (enablePapyrusLogging)
+                        Debug.Trace("[DDNF] Rolling for " + npcFormIdAndName + " (unlockChance=" + unlockChance + "): " + randomRollResult + ".")
+                    EndIf
+                    success = randomRollResult < unlockChance
                 EndIf
             Else
-                successChance = struggleChance
-                If (notifyPlayer)
-                    struggleMessage = npc.GetDisplayName() + " is strugging to escape" + possessive + equipScript.deviceName
+                aborted = true
+            EndIf
+            If (success && !npcTracker.UnlockDevice(npc, equipScript.deviceInventory, equipScript.deviceRendered, equipScript.zad_DeviousDevice))
+                success = false
+                aborted = true
+            EndIf
+            If (!success)
+                cooldown = equipScript.UnlockCooldown
+            EndIf
+            If (notifyPlayer && !aborted)
+                If (success)
+                    If (equipScript.deviceKey == None)
+                        Debug.Notification(npcName + " removed" + possessive + equipScript.deviceName)
+                    Else
+                        Debug.Notification(npcName + " unlocked" + possessive + equipScript.deviceName)
+                    EndIf
+                ElseIf (equipScript.deviceKey == None)
+                    Debug.Notification(npcName + " failed to remove " + possessive + equipScript.deviceName)
+                Else
+                    Debug.Notification(npcName + " failed to reach the lock of" + possessive + equipScript.deviceName)
                 EndIf
+            EndIf
+            
+        ; 1: pick lock
+        ElseIf (escapeMethod == 1) ; pick lock
+            String struggleMessage = ""
+            If (notifyPlayer)
+                struggleMessage = npcName + " is struggling to pick the lock of" + possessive + equipScript.deviceName
             EndIf
             success = PlayStruggleAnimation(npcTracker, ddLibs, equipScript, npc, struggleMessage, strugglingFaction, false)
-            cooldown = equipScript.EscapeCooldown
-            If (chanceZeroPercent && cooldown < equipScript.UnlockCooldown)
-                cooldown = equipScript.UnlockCooldown ; use the worse value if chance is zero percent
-            EndIf
-        EndIf
-        Float randomRollResult = -1 ; special value for "no roll was made"
-        If (success && successChance < 100)
-            If (successChance <= 0)
-                success = false
-            Else
-                randomRollResult = Utility.RandomFloat(0, 99.9)
-                success = randomRollResult < successChance
-            EndIf
-            If (!success && !useUnlockAction && lockpickChance > struggleChance && lockpick != None)
-                npc.RemoveItem(lockpick, aiCount=1, abSilent=true) ; destroy lockpick on failure
-                If (npcTracker.EnablePapyrusLogging)
-                    Debug.Trace("[DDNF] Destroyed " + DDNF_Game.FormIdAsString(lockpick) + " " + lockpick.GetName() + " for " + npcFormIdAndName + ".")
+            If (success) ; recheck conditions before random roll
+                success = CheckIfUnequipPossible(npc, device, renderedDevice, ddLibs, true, false) && npc.GetItemCount(ddLibs.zad_DeviousBondageMittens) == 0 && npc.GetItemCount(ddLibs.zad_DeviousStraitJacket) == 0
+                If (success)
+                    success = npc.GetItemCount(lockpick) > 0
                 EndIf
             EndIf
-        EndIf
-        If (success)
-            Bool recheckConditions = CheckIfUnequipPossible(npc, device, renderedDevice, ddLibs, true, false)
-            If (recheckConditions && useUnlockAction)
-                recheckConditions = equipScript.deviceKey == None || npc.GetItemCount(equipScript.deviceKey) >= equipScript.NumberOfKeysNeeded
-                If (recheckConditions)
-                    recheckConditions = npc.GetItemCount(ddLibs.zad_DeviousBondageMittens) == 0 && npc.GetItemCount(ddLibs.zad_DeviousStraitJacket) == 0
-                EndIf
-            EndIf
-            If (!recheckConditions)
-                tempRef.Delete()
-                Return new Bool[1] ; abort because of inventory change
-            EndIf
-            success = npcTracker.UnlockDevice(npc, equipScript.deviceInventory, equipScript.deviceRendered, equipScript.zad_DeviousDevice)
-        EndIf
-        If (success)
-            If (notifyPlayer)
-                If (useUnlockAction)
-                    If (equipScript.deviceKey == None)
-                        Debug.Notification(npc.GetDisplayName() + " removed" + possessive + equipScript.deviceName)
-                    Else
-                        Debug.Notification(npc.GetDisplayName() + " unlocked" + possessive + equipScript.deviceName)
+            Bool failedToAccessLock = false
+            If (success)
+                If (rawLockAccessChance < 100)
+                    Float randomRollResult = Utility.RandomFloat(0, 99.9)
+                    If (enablePapyrusLogging)
+                        Debug.Trace("[DDNF] Rolling for " + npcFormIdAndName + " (rawLockAccessChance=" + rawLockAccessChance + "): " + randomRollResult + ".")
                     EndIf
-                ElseIf (lockpickChance > struggleChance)
-                    Debug.Notification(npc.GetDisplayName() + " picked the lock of" + possessive + equipScript.deviceName)
+                    success = randomRollResult < rawLockAccessChance
+                    failedToAccessLock = !success
+                EndIf
+                If (success && lockpickChance < 100)
+                    Float randomRollResult = Utility.RandomFloat(0, 99.9)
+                    If (enablePapyrusLogging)
+                        Debug.Trace("[DDNF] Rolling for " + npcFormIdAndName + " (lockpickChance=" + lockpickChance + "): " + randomRollResult + ".")
+                    EndIf
+                    success = randomRollResult < lockpickChance
+                    If (!success)
+                        npc.RemoveItem(lockpick, aiCount=1, abSilent=true) ; destroy lockpick when picking fails (but not when accessing lock fails)
+                        If (npcTracker.EnablePapyrusLogging)
+                            Debug.Trace("[DDNF] Destroyed " + DDNF_Game.FormIdAsString(lockpick) + " " + lockpick.GetName() + " for " + npcFormIdAndName + ".")
+                        EndIf
+                    EndIf
+                EndIf
+            Else
+                aborted = true
+            EndIf
+            If (success && !npcTracker.UnlockDevice(npc, equipScript.deviceInventory, equipScript.deviceRendered, equipScript.zad_DeviousDevice))
+                success = false
+                aborted = true
+            EndIf
+            If (!success)
+                cooldown = equipScript.EscapeCooldown
+            EndIf
+            If (notifyPlayer && !aborted)
+                If (success)
+                    Debug.Notification(npcName + " picked the lock of" + possessive + equipScript.deviceName)
+                ElseIf (failedToAccessLock)
+                    Debug.Notification(npcName + " failed to reach the lock of" + possessive + equipScript.deviceName)
                 Else
-                    Debug.Notification(npc.GetDisplayName() + " escaped " + possessive + equipScript.deviceName)
+                    Debug.Notification(npcName + " failed to pick the lock of" + possessive + equipScript.deviceName)
                 EndIf
             EndIf
-            If (npcTracker.EnablePapyrusLogging)
-                If (randomRollResult >= 0)
-                    Debug.Trace("[DDNF] " + npcFormIdAndName + " escaped " + deviceFormIdAndName + " (" + randomRollResult + " < " + successChance +").")
-                Else
-                    Debug.Trace("[DDNF] " + npcFormIdAndName + " escaped " + deviceFormIdAndName + " (auto-success).")
+            
+        ; 2: struggle
+        ElseIf (escapeMethod == 2)
+            String struggleMessage = ""
+            If (notifyPlayer)
+                struggleMessage = npcName + " is struggling to escape" + possessive + equipScript.deviceName
+            EndIf
+            success = PlayStruggleAnimation(npcTracker, ddLibs, equipScript, npc, struggleMessage, strugglingFaction, false)
+            If (success) ; recheck conditions before random roll
+                success = CheckIfUnequipPossible(npc, device, renderedDevice, ddLibs, true, false)
+            EndIf
+            If (success)
+                If (struggleChance > 0 && struggleChance < 100)
+                    Float randomRollResult = Utility.RandomFloat(0, 99.9)
+                    If (enablePapyrusLogging)
+                        Debug.Trace("[DDNF] Rolling for " + npcFormIdAndName + " (struggleChance=" + struggleChance + "): " + randomRollResult + ".")
+                    EndIf
+                    success = randomRollResult < struggleChance
+                ElseIf (struggleChance == 0)
+                    success = false
                 EndIf
+            Else
+                aborted = true
+            EndIf
+            If (success && !npcTracker.UnlockDevice(npc, equipScript.deviceInventory, equipScript.deviceRendered, equipScript.zad_DeviousDevice))
+                success = false
+                aborted = true
+            EndIf
+            If (!success)
+                cooldown = equipScript.EscapeCooldown
+                If (struggleChance == 0 && cooldown < equipScript.UnlockCooldown)
+                    cooldown = equipScript.UnlockCooldown ; use the worse value if chance is zero percent
+                EndIf
+            EndIf
+            If (notifyPlayer && !aborted)
+                If (success)
+                    Debug.Notification(npcName + " escaped " + possessive + equipScript.deviceName)
+                ElseIf (struggleChance == 0)
+                    Debug.Notification(npcName + " has no way to escape" + possessive + equipScript.deviceName)
+                Else
+                    Debug.Notification(npcName + " failed to escape" + possessive + equipScript.deviceName)
+                EndIf
+            EndIf
+        EndIf
+    EndIf
+    If (enablePapyrusLogging)
+        If (success)
+            If (finalChance >= 100)
+                Debug.Trace("[DDNF] " + npcFormIdAndName + " escaped " + deviceFormIdAndName + " (auto-success).")
+            Else
+                Debug.Trace("[DDNF] " + npcFormIdAndName + " escaped " + deviceFormIdAndName + ".")
+            EndIf
+        ElseIf (aborted)
+            Debug.Trace("[DDNF] " + npcFormIdAndName + " failed to escape " + deviceFormIdAndName + " (aborted).")
+        ElseIf (finalChance <= 0)
+            If (escapeMethod == -1)
+                Debug.Trace("[DDNF] " + npcFormIdAndName + " failed to escape " + deviceFormIdAndName + " (auto-failure without struggling).")
+            Else
+                Debug.Trace("[DDNF] " + npcFormIdAndName + " failed to escape " + deviceFormIdAndName + " (auto-failure).")
             EndIf
         Else
-            If (notifyPlayer && IsStruggling()) ; do not notify if interrupdted
-                If (useUnlockAction)
-                    If (equipScript.deviceKey == None)
-                        Debug.Notification(npc.GetDisplayName() + " failed to remove " + possessive + equipScript.deviceName)
-                    Else
-                        Debug.Notification(npc.GetDisplayName() + " failed to reach the lock of" + possessive + equipScript.deviceName)
-                    EndIf
-                ElseIf (chanceZeroPercent)
-                    Debug.Notification(npc.GetDisplayName() + " has no way to escape" + possessive + equipScript.deviceName)
-                ElseIf (lockpickChance > struggleChance)
-                    Debug.Notification(npc.GetDisplayName() + " failed to pick the lock of" + possessive + equipScript.deviceName)
-                Else
-                    Debug.Notification(npc.GetDisplayName() + " failed to escape" + possessive + equipScript.deviceName)
-                EndIf
-            EndIf
-            If (npcTracker.EnablePapyrusLogging)
-                If (randomRollResult >= 0)
-                    Debug.Trace("[DDNF] " + npcFormIdAndName + " failed to escape " + deviceFormIdAndName + " (" + randomRollResult + " >= " + successChance +").")
-                Else
-                    Debug.Trace("[DDNF] " + npcFormIdAndName + " failed to escape " + deviceFormIdAndName + " (auto-failure).")
-                EndIf
-            EndIf
+            Debug.Trace("[DDNF] " + npcFormIdAndName + " failed to escape " + deviceFormIdAndName + ".")
         EndIf
     EndIf
 
@@ -2270,7 +2353,7 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool struggle
     If (success)
         If (StorageUtil.HasFloatValue(npc, storageUtilTag))
             StorageUtil.UnsetFloatValue(npc, storageUtilTag)
-            If (npcTracker.EnablePapyrusLogging)
+            If (enablePapyrusLogging)
                 Debug.Trace("[DDNF] StorageUtil: UnsetFloatValue(" + npcFormId + ", " + storageUtilTag + ")")
             EndIf
         EndIf
@@ -2280,17 +2363,20 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool struggle
         EndIf
         Float cooldownGameTime = Utility.GetCurrentGameTime() + cooldown / 24
         StorageUtil.SetFloatValue(npc, storageUtilTag, cooldownGameTime)
-        If (npcTracker.EnablePapyrusLogging)
+        If (enablePapyrusLogging)
             Debug.Trace("[DDNF] StorageUtil: SetFloatValue(" + npcFormId + ", " + storageUtilTag + ", " + cooldownGameTime + ") [" + cooldown + "h]")
         EndIf
     EndIf
 
     ; done
     tempRef.Delete()
+    If (aborted)
+        Return new Bool[1]
+    EndIf
     Bool[] result = new Bool[3]
     result[0] = success
-    result[1] = chanceZeroPercent && IsStruggling()
-    result[2] = result[1] && doNotStruggle
+    result[1] = finalChance <= 0
+    result[2] = escapeMethod == -1
     Return result
 EndFunction 
 
