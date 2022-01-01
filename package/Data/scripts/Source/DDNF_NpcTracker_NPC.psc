@@ -2198,7 +2198,7 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool struggle
                 randomRollResult = Utility.RandomFloat(0, 99.9)
                 success = randomRollResult < successChance
             EndIf
-            If (!useUnlockAction && lockpickChance > struggleChance && lockpick != None)
+            If (!success && !useUnlockAction && lockpickChance > struggleChance && lockpick != None)
                 npc.RemoveItem(lockpick, aiCount=1, abSilent=true) ; destroy lockpick on failure
                 If (npcTracker.EnablePapyrusLogging)
                     Debug.Trace("[DDNF] Destroyed " + DDNF_Game.FormIdAsString(lockpick) + " " + lockpick.GetName() + " for " + npcFormIdAndName + ".")
