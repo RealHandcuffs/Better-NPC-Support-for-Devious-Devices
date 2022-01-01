@@ -180,6 +180,8 @@ Version 0.6 beta 1
 - Make MCM mod name display work for esl's in special edition (this requires se-only script changes)
 
 Version 0.6 beta 2
-- NPCs will now observe device cooldowns when trying to escape
+- NPCs will abide by device cooldowns when trying to escape; they will only use the action with the largest chance of success, though
 - Add new struggle frequency option "(by device)", this will choose struggle frequency automatically according to worn devices
 - Make "(by device)" default struggle frequency for followers (only new games, existing games will continue to use the currently configured value)
+- NPCs can now try to escape by picking the lock of their devices, as long as they have lockpicks in their inventory (they will break on failure)
+- Add MCM setting to enable/disable escape by picking locks, default option is "followers only"

@@ -7,6 +7,14 @@ Bool Function IsSerana(Int maybeSeranaFormId) Global ; maybeSeranaFormId must be
      Return DDNF_Game.GetModInternalFormId(maybeSeranaFormId) == 0x002B74
 EndFunction
 
+Function FixupSeranaAfterUpdatingWeight() Global
+    Form cureSelfQuest = Game.GetFormFromFile(0x005044, "Dawnguard.esm") ; DLC1SeranaCureSelfQuest 
+    DLC1SeranaCureQuestScript cq = cureSelfQuest as DLC1SeranaCureQuestScript
+    If (cq.IsRunning())
+        cq.SetEyes()
+    EndIf
+EndFunction
+
 Function KickSeranaFromSandboxPackage(Actor serana) Global
     Form mentalModel = Game.GetFormFromFile(0x002B6E, "Dawnguard.esm") ; DLC1NPCMentalModel
     DLC1_NPCMentalModelScript mm = mentalModel as DLC1_NPCMentalModelScript

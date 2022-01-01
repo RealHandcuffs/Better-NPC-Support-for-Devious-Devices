@@ -40,6 +40,7 @@ Int Property CurrentFollowerStruggleFrequency = -1 Auto ; 0 disables, -1 for aut
 Bool Property NotifyPlayerOfCurrentFollowerStruggle = True Auto
 Bool Property OnlyDisplayFinalSummaryMessage = True Auto
 Int Property OtherNpcStruggleFrequency = 0 Auto ; 0 disables, -1 for auto
+Int Property AllowEscapeByPickingLocks = 1 Auto ; 0 disables, 1 current followers only, 2 all NPCs
 
 Float Property MaxFixupsPerThreeSeconds = 3.0 Auto
 
