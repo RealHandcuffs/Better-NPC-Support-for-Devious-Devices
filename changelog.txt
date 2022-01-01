@@ -185,3 +185,4 @@ Version 0.6 beta 2
 - Make "(by device)" default struggle frequency for followers (only new games, existing games will continue to use the currently configured value)
 - NPCs can now try to escape by picking the lock of their devices, as long as they have lockpicks in their inventory (they will break on failure)
 - Add MCM setting to enable/disable escape by picking locks, default option is "followers only"
+- Some small fixes
