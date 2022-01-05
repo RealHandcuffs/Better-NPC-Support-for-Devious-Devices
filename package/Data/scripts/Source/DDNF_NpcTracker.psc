@@ -116,7 +116,21 @@ Function HandleGameLoaded(Bool upgrade)
     Alias[] aliases = GetAliases()
     Form[] npcs = GetNpcs()
     While (index < aliases.Length)
-        (aliases[index] as DDNF_NpcTracker_NPC).HandleGameLoaded(upgrade)
+        DDNF_NpcTracker_NPC tracker = (aliases[index] as DDNF_NpcTracker_NPC)
+        tracker.HandleGameLoaded(upgrade)
+        Actor npc = tracker.GetReference() as Actor
+        If (npcs[index] != npc) ; the game seems to sometimes clear aliases when loading auto-saves created by loading doors
+            If (EnablePapyrusLogging)
+                Debug.Trace("[DDNF] Detected bad data at npcs[" + index + "], fixing.")
+            EndIf
+            If (npc == None)
+                npc = npcs[index] as Actor
+                npcs[index] = None
+                Add(npc)
+            Else
+                npcs[index] = npc
+            EndIf
+        EndIf
         index += 1
     EndWhile
     ; refresh options (might notify all alias scripts again
@@ -363,7 +377,7 @@ Function HandleScannerFinished(Int counter)
             Int arrayIndex = (offset + index) % aliases.Length
             DDNF_NpcTracker_NPC tracker = (aliases[arrayIndex] as DDNF_NpcTracker_NPC)
             Actor npc = tracker.GetReference() as Actor
-            If (npcs[arrayIndex] != npc) ; there seems to be a race condition with events somewhere...
+            If (npcs[arrayIndex] != npc) ; the game seems to sometimes clear aliases when loading auto-saves created by loading doors
                 If (EnablePapyrusLogging)
                     Debug.Trace("[DDNF] Detected bad data at npcs[" + arrayIndex + "], fixing.")
                 EndIf
