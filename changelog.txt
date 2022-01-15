@@ -191,3 +191,6 @@ Version 0.6 beta 3
 - Fix lockpick escape: NPCs first need to access lock before they can pick it, just like players
 - Apply Devious Devices cooldown difficulty modifier (configured in DD MCM) to NPCs
 - Optimize escape attempt triggering code, especially for "(by device)" case
+
+Version 0.6 beta 4
+- changes to allow conversion to .esl

@@ -51,7 +51,12 @@ Event OnPageReset(string page)
 
     DDNF_MainQuest_Player mqp = MainQuest.GetAlias(0) as DDNF_MainQuest_Player
     If (DDNF_Game.IsSpecialEdition())
-        SetTitleText("Better NPC Support for Devious Devices, v " + mqp.Version + " (SE)")
+        Int npcTrackerFormId = DDNF_NpcTracker.Get().GetFormID()
+        If (DDNF_Game.GetModId(npcTrackerFormId) < 1000000)
+            SetTitleText("Better NPC Support for Devious Devices, v " + mqp.Version + " (SE)")
+        Else
+            SetTitleText("Better NPC Support for Devious Devices, v " + mqp.Version + " (SE, ESL)")
+        EndIf
     Else
         SetTitleText("Better NPC Support for Devious Devices, v " + mqp.Version)
     EndIf

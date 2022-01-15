@@ -20,6 +20,7 @@ Keyword Property MagicInfluenceCharm Auto
 Keyword Property TrackingKeyword Auto
 Keyword Property VendorItemArrow Auto
 Message Property ManipulatePanelGagInstead Auto
+Message Property LinkGlovesInstead Auto
 Package Property FollowerPackageTemplate Auto
 Package Property Sandbox Auto
 Package Property BoundCombatNPCSandbox Auto
@@ -55,7 +56,7 @@ Int _attemptedFixupsInPeriod
 
 
 DDNF_NpcTracker Function Get() Global
-    Return Game.GetFormFromFile(0x00001827, "DD_NPC_Fixup.esp") as DDNF_NpcTracker
+    Return StorageUtil.GetFormValue(None, "DDNF_NpcTracker", None) as DDNF_NpcTracker
 EndFunction
 
 
@@ -99,8 +100,22 @@ Function HandleGameLoaded(Bool upgrade)
         _cachedAliases = emptyAliasArray
         Form[] emptyFormArray
         _cachedNpcs = emptyFormArray
-        ; clear StorageUtil data
+        ; clear StorageUtil data (will also register npctracker/externalapi)
         ClearStorageUtilData()
+    Else
+        ; register npctracker/externalapi if necessary (should already be registered)
+        If (StorageUtil.GetFormValue(None, "DDNF_NpcTracker", None) as DDNF_NpcTracker == None)
+            StorageUtil.SetFormValue(None, "DDNF_NpcTracker", Self)
+            If (EnablePapyrusLogging)
+                Debug.Trace("[DDNF] StorageUtil: SetFormValue(None, DDNF_NpcTracker, " + DDNF_Game.FormIdAsString(self) + ")")
+            EndIf
+        EndIf
+        If (StorageUtil.GetFormValue(None, "DDNF_ExternalApi", None) as DDNF_ExternalApi == None)
+            StorageUtil.SetFormValue(None, "DDNF_ExternalApi", (Self as Quest) as DDNF_ExternalApi)
+            If (EnablePapyrusLogging)
+                Debug.Trace("[DDNF] StorageUtil: SetFormValue(None, DDNF_ExternalApi, " + DDNF_Game.FormIdAsString(self) + ")")
+            ENdIf
+        EndIf
     EndIf
     ; refresh soft dependencies
     RefreshWeaponDisplayArmors()
@@ -144,8 +159,13 @@ EndFunction
 
 Function ClearStorageUtilData()
     StorageUtil.ClearAllPrefix("ddnf_")
+    StorageUtil.SetFormValue(None, "DDNF_NpcTracker", Self)
+    StorageUtil.SetFormValue(None, "DDNF_ExternalApi", (Self as Quest) as DDNF_ExternalApi)
     If (EnablePapyrusLogging)
         Debug.Trace("[DDNF] StorageUtil: ClearAllPrefix(ddnf_)")
+        String formId = DDNF_Game.FormIdAsString(self)
+        Debug.Trace("[DDNF] StorageUtil: SetFormValue(None, DDNF_NpcTracker, " + formId + ")")
+        Debug.Trace("[DDNF] StorageUtil: SetFormValue(None, DDNF_ExternalApi, " + formId + ")")
     EndIf
 EndFunction
 

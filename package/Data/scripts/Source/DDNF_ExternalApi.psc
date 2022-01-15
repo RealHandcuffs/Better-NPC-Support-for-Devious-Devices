@@ -7,7 +7,7 @@ Scriptname DDNF_ExternalApi extends Quest
 ; Global function getting the instance of this API.
 ;
 DDNF_ExternalApi Function Get() Global
-    Return Game.GetFormFromFile(0x00001827, "DD_NPC_Fixup.esp") as DDNF_ExternalApi
+    Return StorageUtil.GetFormValue(None, "DDNF_ExternalApi", None) as DDNF_ExternalApi
 EndFunction
 
 
