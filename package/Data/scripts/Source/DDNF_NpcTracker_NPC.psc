@@ -752,7 +752,7 @@ Event OnUpdate()
         EndIf
         If (hasAnimation && animationIsApplied)
             ; un/reequipping devices can break the current idle and replace it with the default idle, restart the bound idle
-            If (!npc.IsInFaction(ddLibs.zadAnimatingFaction)) ; prevent breaking struggle animations
+            If (!npc.IsInFaction(ddLibs.zadAnimatingFaction) && !npc.IsUnconscious() && npc.GetSleepState() <= 2)
                 Debug.SendAnimationEvent(npc, "IdleForceDefaultState")
             EndIf
         ElseIf (hasAnimation != animationIsApplied)
@@ -1472,7 +1472,7 @@ Event OnUpdateGameTime()
     DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
     If (npc != None && npcTracker.IsEnabled)
         Bool registerForUpdate = true
-        If (npcTracker.EscapeSystemEnabled)
+        If (npcTracker.EscapeSystemEnabled && !npc.IsUnconscious() && npc.GetSleepState() <= 2)
             Int struggleFrequency
             If (IsCurrentFollower(npc, npcTracker))
                 struggleFrequency = npcTracker.CurrentFollowerStruggleFrequency
