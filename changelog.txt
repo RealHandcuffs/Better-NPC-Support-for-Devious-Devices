@@ -192,7 +192,7 @@ Version 0.6 beta 3
 - Apply Devious Devices cooldown difficulty modifier (configured in DD MCM) to NPCs
 - Optimize escape attempt triggering code, especially for "(by device)" case
 
-Version 0.6 beta 4
+Version 0.6
 - Do not apply bound idle to sleeping or unconsious NPCs
 - Prevent sleeping or unconscious NPCs from struggling
 - Script changes to allow conversion of mod to .esl
