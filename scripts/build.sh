@@ -73,7 +73,7 @@ then
 fi
 
 # compile papyrus scripts
-if [[ $$SE = 0 ]]
+if [[ $SE = 0 ]]
 then
   scripts/compile_papyrus.sh $QUIET
 else
@@ -86,6 +86,13 @@ then
   echo Copying files.
 fi
 cp -r -p package build
+cd "$BASE_DIR/build/package"
+if [[ $SE == 1 ]]
+then
+  cp -r -p Data_SE/. Data
+fi
+rm -rf Data_SE
+cd "$BASE_DIR"
 cp -p changelog.txt build/package
 cp -p LICENSE.txt build/package
 VERSION=$(cat build/package/Data/scripts/Source/DDNF_MainQuest_Player.psc | sed -nr 's/^\s*String\s+Property\s+Version\s*=\s*"([^"]+)"\s+AutoReadOnly\s*$/\1/p')

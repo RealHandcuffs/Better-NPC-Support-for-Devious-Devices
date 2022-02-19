@@ -9,12 +9,18 @@ DDNF_MainQuest Property MainQuest Auto
 Actor Property Player Auto
 Faction Property CurrentFollowerFaction Auto
 Faction Property DeviceTargets Auto
+Faction Property EvadeCombat Auto
 Faction Property Helpless Auto
 Faction Property Struggling Auto
 Faction Property UnarmedCombatants Auto
+FormList Property MassiveRacesList Auto
 FormList Property WeaponDisplayArmors Auto
+Keyword Property ActorTypeDragon Auto
+Keyword Property MagicInfluenceCharm Auto
 Keyword Property TrackingKeyword Auto
+Keyword Property VendorItemArrow Auto
 Message Property ManipulatePanelGagInstead Auto
+Message Property LinkGlovesInstead Auto
 Package Property FollowerPackageTemplate Auto
 Package Property Sandbox Auto
 Package Property BoundCombatNPCSandbox Auto
@@ -31,10 +37,11 @@ Bool Property AllowManipulationOfDevices = True Auto
 Bool Property EscapeSystemEnabled = False Auto
 Bool Property StruggleIfPointless = False Auto
 Int Property AbortStrugglingAfterFailedDevices = 3 Auto ; 0 disables
-Int Property CurrentFollowerStruggleFrequency = 2 Auto ; 0 disables
+Int Property CurrentFollowerStruggleFrequency = -1 Auto ; 0 disables, -1 for auto
 Bool Property NotifyPlayerOfCurrentFollowerStruggle = True Auto
 Bool Property OnlyDisplayFinalSummaryMessage = True Auto
-Int Property OtherNpcStruggleFrequency = 0 Auto ; 0 disables
+Int Property OtherNpcStruggleFrequency = 0 Auto ; 0 disables, -1 for auto
+Int Property AllowEscapeByPickingLocks = 1 Auto ; 0 disables, 1 current followers only, 2 all NPCs
 
 Float Property MaxFixupsPerThreeSeconds = 3.0 Auto
 
@@ -49,7 +56,7 @@ Int _attemptedFixupsInPeriod
 
 
 DDNF_NpcTracker Function Get() Global
-    Return Game.GetFormFromFile(0x00001827, "DD_NPC_Fixup.esp") as DDNF_NpcTracker
+    Return StorageUtil.GetFormValue(None, "DDNF_NpcTracker", None) as DDNF_NpcTracker
 EndFunction
 
 
@@ -85,7 +92,6 @@ EndFunction
 
 Function HandleGameLoaded(Bool upgrade)
     If (upgrade)
-        IsEnabled = IsRunning()
         ; stop further fixups until the upgrade is done
         UnregisterForUpdate()
         _attemptedFixupsInPeriod = 9999
@@ -94,13 +100,30 @@ Function HandleGameLoaded(Bool upgrade)
         _cachedAliases = emptyAliasArray
         Form[] emptyFormArray
         _cachedNpcs = emptyFormArray
-        ; clear StorageUtil data
+        ; clear StorageUtil data (will also register npctracker/externalapi)
         ClearStorageUtilData()
+    Else
+        ; register npctracker/externalapi if necessary (should already be registered)
+        If (StorageUtil.GetFormValue(None, "DDNF_NpcTracker", None) as DDNF_NpcTracker == None)
+            StorageUtil.SetFormValue(None, "DDNF_NpcTracker", Self)
+            If (EnablePapyrusLogging)
+                Debug.Trace("[DDNF] StorageUtil: SetFormValue(None, DDNF_NpcTracker, " + DDNF_Game.FormIdAsString(self) + ")")
+            EndIf
+        EndIf
+        If (StorageUtil.GetFormValue(None, "DDNF_ExternalApi", None) as DDNF_ExternalApi == None)
+            StorageUtil.SetFormValue(None, "DDNF_ExternalApi", (Self as Quest) as DDNF_ExternalApi)
+            If (EnablePapyrusLogging)
+                Debug.Trace("[DDNF] StorageUtil: SetFormValue(None, DDNF_ExternalApi, " + DDNF_Game.FormIdAsString(self) + ")")
+            ENdIf
+        EndIf
     EndIf
     ; refresh soft dependencies
     RefreshWeaponDisplayArmors()
     DeviousDevicesIntegrationModId = Game.GetModByName("Devious Devices - Integration.esm")
     DawnguardModId = Game.GetModByName("Dawnguard.esm")
+    If (DawnguardModId != 255)
+        DDNF_DLC1Shim.AddMassiveRaces(MassiveRacesList)
+    EndIf
     DeviouslyCursedLootModId = Game.GetModByName("Deviously Cursed Loot.esp")
     DeviousContraptionsModId = Game.GetModByName("Devious Devices - Contraptions.esm")
     ; notify all alias scripts
@@ -108,7 +131,21 @@ Function HandleGameLoaded(Bool upgrade)
     Alias[] aliases = GetAliases()
     Form[] npcs = GetNpcs()
     While (index < aliases.Length)
-        (aliases[index] as DDNF_NpcTracker_NPC).HandleGameLoaded(upgrade)
+        DDNF_NpcTracker_NPC tracker = (aliases[index] as DDNF_NpcTracker_NPC)
+        tracker.HandleGameLoaded(upgrade)
+        Actor npc = tracker.GetReference() as Actor
+        If (npcs[index] != npc) ; the game seems to sometimes clear aliases when loading auto-saves created by loading doors
+            If (EnablePapyrusLogging)
+                Debug.Trace("[DDNF] Detected bad data at npcs[" + index + "], fixing.")
+            EndIf
+            If (npc == None)
+                npc = npcs[index] as Actor
+                npcs[index] = None
+                Add(npc)
+            Else
+                npcs[index] = npc
+            EndIf
+        EndIf
         index += 1
     EndWhile
     ; refresh options (might notify all alias scripts again
@@ -116,13 +153,19 @@ Function HandleGameLoaded(Bool upgrade)
     ; done
     If (upgrade)
         _attemptedFixupsInPeriod = 0
+        IsEnabled = IsRunning()
     EndIf
 EndFunction
 
 Function ClearStorageUtilData()
     StorageUtil.ClearAllPrefix("ddnf_")
+    StorageUtil.SetFormValue(None, "DDNF_NpcTracker", Self)
+    StorageUtil.SetFormValue(None, "DDNF_ExternalApi", (Self as Quest) as DDNF_ExternalApi)
     If (EnablePapyrusLogging)
         Debug.Trace("[DDNF] StorageUtil: ClearAllPrefix(ddnf_)")
+        String formId = DDNF_Game.FormIdAsString(self)
+        Debug.Trace("[DDNF] StorageUtil: SetFormValue(None, DDNF_NpcTracker, " + formId + ")")
+        Debug.Trace("[DDNF] StorageUtil: SetFormValue(None, DDNF_ExternalApi, " + formId + ")")
     EndIf
 EndFunction
 
@@ -250,9 +293,24 @@ EndFunction
 
 
 ;
-; Called when a device is equipped on a NPC.
+; Called when a device is equipped on a NPC or the player.
 ;
 Function HandleDeviceEquipped(Actor akActor, Armor inventoryDevice, Bool checkForNotEquippedBug)
+    If (akActor == Player)
+        If (DDLibs.GetDeviceKeyword(inventoryDevice) == ddLibs.zad_DeviousHeavyBondage)
+            Int index = 0
+            Alias[] aliases = GetAliases()
+            While (index < aliases.Length)
+                DDNF_NpcTracker_NPC tracker = GetAliases()[index] as DDNF_NpcTracker_NPC
+                Actor npc = tracker.GetReference() as Actor
+                If (npc && tracker.UpdateEvadeCombat(npc, Self))
+                    npc.EvaluatePackage()
+                EndIf
+                index += 1
+            EndWhile
+        EndIf
+        Return
+    EndIf
     Int index = GetNpcs().Find(akActor)
     If (index < 0)
         index = Add(akActor)
@@ -292,6 +350,38 @@ Function HandleDeviceEquipped(Actor akActor, Armor inventoryDevice, Bool checkFo
     EndIf
 EndFunction
 
+;
+; Called when a device is unequipped from a NPC or the player.
+;
+Function HandleDeviceRemoved(Actor akActor, Armor inventoryDevice)
+    If (akActor == Player)
+        If (DDLibs.GetDeviceKeyword(inventoryDevice) == ddLibs.zad_DeviousHeavyBondage)
+            Utility.WaitMenuMode(2) ; because we get the event before the device is actually removed
+            Int index = 0
+            Alias[] aliases = GetAliases()
+            While (index < aliases.Length)
+                DDNF_NpcTracker_NPC tracker = GetAliases()[index] as DDNF_NpcTracker_NPC
+                Actor npc = tracker.GetReference() as Actor
+                If (npc && tracker.UpdateEvadeCombat(npc, Self))
+                    npc.EvaluatePackage()
+                EndIf
+                index += 1
+            EndWhile
+        EndIf
+    EndIf
+    Utility.Wait(2) ; allow some time for things to work
+    Armor renderedDevice = GetRenderedDevice(inventoryDevice, false)
+    If (akActor.GetItemCount(renderedDevice) == 0)
+        String storageUtilTag = "ddnf_e_t" + DDNF_NpcTracker.GetOrCreateUniqueTag(inventoryDevice)
+        If (StorageUtil.HasFloatValue(akActor, storageUtilTag))
+            StorageUtil.UnsetFloatValue(akActor, storageUtilTag)
+            If (EnablePapyrusLogging)
+                Debug.Trace("[DDNF] StorageUtil: UnsetFloatValue(" + DDNF_Game.FormIdAsString(akActor) + ", " + storageUtilTag + ")")
+            EndIf
+        EndIf
+    EndIf
+EndFunction
+
 
 ;
 ; Called after each scanner run of the main quest.
@@ -305,12 +395,23 @@ Function HandleScannerFinished(Int counter)
         While (index < 8)
             ; detect and fix bad data in _cachedNpcs
             Int arrayIndex = (offset + index) % aliases.Length
-            ObjectReference expected = (aliases[arrayIndex] as ReferenceAlias).GetReference()
-            If (npcs[arrayIndex] != expected) ; there seems to be a race condition with events somewhere...
+            DDNF_NpcTracker_NPC tracker = (aliases[arrayIndex] as DDNF_NpcTracker_NPC)
+            Actor npc = tracker.GetReference() as Actor
+            If (npcs[arrayIndex] != npc) ; the game seems to sometimes clear aliases when loading auto-saves created by loading doors
                 If (EnablePapyrusLogging)
                     Debug.Trace("[DDNF] Detected bad data at npcs[" + arrayIndex + "], fixing.")
                 EndIf
-                npcs[arrayIndex] = expected
+                npcs[arrayIndex] = npc
+            EndIf
+            If (npc != None)
+                ; handle missed events
+                If (npc.IsDead())
+                    tracker.Clear()
+                ElseIf (!npc.Is3DLoaded() || npc.IsDead())
+                    If (!tracker.IsWaitingForFixup())
+                        tracker.RegisterForFixup(16)
+                    EndIf
+                EndIf
             EndIf
             index += 1
         EndWhile
@@ -462,4 +563,37 @@ Function LinkInventoryDeviceAndRenderedDevice(Armor inventoryDevice, Armor rende
         Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + inventoryFormId + ", ddnf_r, " + renderedFormId + ")")
         Debug.Trace("[DDNF] StorageUtil: SetFormValue(" + renderedFormId + ", ddnf_i, " + inventoryFormId + ")")
     EndIf
+EndFunction
+
+
+;
+; Get or create a unique string tag for a form.
+;
+String Function GetOrCreateUniqueTag(Form item) Global
+    If (item == None)
+        Return ""
+    EndIf
+    String tag = StorageUtil.GetStringValue(item, "ddnf_t", "")
+    If (tag == "")
+        DDNF_NpcTracker tracker = Get()
+        Int seed = StorageUtil.AdjustIntValue(None, "ddnf_t", 1)
+        If (tracker.EnablePapyrusLogging)
+            Debug.Trace("[DDNF] StorageUtil: AdjustIntValue(None, ddnf_t, 1) -> " + seed)
+        EndIf
+        tag = StringUtil.GetNthChar("0123456789abcdefghijklmnopqrstuvwxyz", seed % 36)
+        While (seed >= 36)
+            seed = seed / 36
+            tag = StringUtil.GetNthChar("0123456789abcdefghijklmnopqrstuvwxyz", seed % 36) + tag
+        EndWhile
+        String maybeTag = StorageUtil.GetStringValue(item, "ddnf_t", "") ; reduce chance of race condition
+        If (maybeTag == "")
+            StorageUtil.SetStringValue(item, "ddnf_t", tag)
+            If (tracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] StorageUtil: SetStringValue(" + DDNF_Game.FormIdAsString(item) + ", ddnf_t, " + tag + ")")
+            EndIf
+        Else
+            tag = maybeTag
+        EndIf
+    EndIf
+    Return tag
 EndFunction

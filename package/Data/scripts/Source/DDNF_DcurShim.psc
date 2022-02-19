@@ -7,8 +7,7 @@ Bool Function HandleDeviceSelectedInContainerMenu(DDNF_NpcTracker npcTracker, Ac
     Int modInternalFormId = DDNF_Game.GetModInternalFormId(inventoryDevice.GetFormID())
     If (modInternalFormId == 0x057e25) ; Rubber Gloves with D-links
         If (npc.GetItemCount(npcTracker.DDLibs.zad_DeviousHeavyBondage) == 0) ; not possible if already wearing heavy bondage
-            Message msg = Game.GetFormFromFile(0x006397, "DD_NPC_Fixup.esp") as Message
-            Int selection = msg.Show()
+            Int selection = npcTracker.LinkGlovesInstead.Show()
             If (selection > 0 && npcTracker.EnsureDeviceStillEquippedAfterPlayerSelection(npc, inventoryDevice, renderedDevice))
                 Int index = npcTracker.Add(npc)
                 If (index >= 0)

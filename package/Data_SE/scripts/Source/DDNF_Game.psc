@@ -1,7 +1,7 @@
 ;
 ; A script containing static helper functions.
 ; This script is different for classic Skyrim and for Special Edition.
-; This file contains the script for classic Skyrim.
+; This file contains the script for Special Edition.
 ;
 Scriptname DDNF_Game
 
@@ -9,7 +9,7 @@ Scriptname DDNF_Game
 ; Return false if the game is classic Skyrim, true if it is Special Edition (including Anniversary Edition).
 ;
 Bool Function IsSpecialEdition() Global
-    Return false
+    Return true
 EndFunction
 
 ;
@@ -17,7 +17,10 @@ EndFunction
 ;
 Int Function GetModInternalFormId(Int formId) Global
     Int modId = Math.RightShift(formId, 24)
-    If (modId == 0xff)
+    If (modId >= 0xfe)
+        If (modId == 0xfe) ; esl
+            Return Math.LogicalAnd(formId, 0xfff)
+        EndIf
         return formId
     EndIf
     Return Math.LogicalAnd(formId, 0xffffff)
@@ -29,8 +32,11 @@ EndFunction
 ;
 Int Function GetModId(Int formId) Global
     Int modId = Math.RightShift(formId, 24)
-    If (modId == 0xff)
-        Return -1
+    If (modId >= 0xfe)
+        If (modId == 0xfe) ; esl
+            Return Math.RightShift(formId, 12)
+        EndIf
+        Return -1 ; modId == 0xff
     EndIf
     Return modId
 EndFunction
@@ -41,6 +47,10 @@ EndFunction
 String Function GetModName(Int modId) Global
     If (modId >= 0 && modId <= 0xfe)
         Return Game.GetModName(modId)
+    EndIf
+    If (modId >= 0xfe000 && modId <= 0xfefff) ; esl
+        Int eslId = Math.LogicalAnd(modId, 0xfff)
+        Return Game.GetLightModName(eslId)
     EndIf
     Return ""
 EndFunction

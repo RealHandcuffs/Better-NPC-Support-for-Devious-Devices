@@ -168,3 +168,31 @@ Version 0.5
 
 Version 0.5.1
 - Hotfix: Tighten code to reduce chance of race condition and implement additional code to mitigate the problem
+
+Version 0.6 beta 1
+- Make bound NPCs behave defensively even if bound combat is enabled
+- Do not make bound NPCs behave defensively if they are followers and player is bound, too
+- Allow non-followers to use bound combat, too, if it is enabled in Devious Devices settings
+- Unequip arrows too when unequipping weapons from bound NPCs
+- Ignore disabled NPCs
+- Various optimizations
+- Build system: Support different files for classic skyrim and special edition
+- Make MCM mod name display work for esl's in special edition (this requires se-only script changes)
+
+Version 0.6 beta 2
+- NPCs will abide by device cooldowns when trying to escape; they will only use the action with the largest chance of success, though
+- Add new struggle frequency option "(by device)", this will choose struggle frequency automatically according to worn devices
+- Make "(by device)" default struggle frequency for followers (only new games, existing games will continue to use the currently configured value)
+- NPCs can now try to escape by picking the lock of their devices, as long as they have lockpicks in their inventory (they will break on failure)
+- Add MCM setting to enable/disable escape by picking locks, default option is "Current Followers Only"
+- Some small fixes
+
+Version 0.6 beta 3
+- Fix lockpick escape: NPCs first need to access lock before they can pick it, just like players
+- Apply Devious Devices cooldown difficulty modifier (configured in DD MCM) to NPCs
+- Optimize escape attempt triggering code, especially for "(by device)" case
+
+Version 0.6
+- Do not apply bound idle to sleeping or unconsious NPCs
+- Prevent sleeping or unconscious NPCs from struggling
+- Script changes to allow conversion of mod to .esl
