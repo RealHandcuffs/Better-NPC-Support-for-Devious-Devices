@@ -129,6 +129,21 @@ EndFunction
 
 
 ;
+; Check whether a currently tracked NPC is in a devious contraption.
+;
+Bool Function IsInDeviousContraption(Int trackingId)
+    If (trackingId >= 0)
+        Alias[] aliases = ((Self as Quest) as DDNF_NpcTracker).GetAliases()
+        If (trackingId < aliases.Length)
+            DDNF_NpcTracker_NPC npcTracker = aliases[trackingId] as DDNF_NpcTracker_NPC
+            Return npcTracker.IsInDeviousContraption()
+        EndIf
+    EndIf
+    Return false
+EndFunction
+
+
+;
 ; Get the equipped devious devices of a currently tracked NPC.
 ; This should usually be much faster than scanning the inventory for devices, though there are edge cases
 ; where it will need to internally fall back to scanning.

@@ -114,7 +114,7 @@ Function HandleGameLoaded(Bool upgrade)
             StorageUtil.SetFormValue(None, "DDNF_ExternalApi", (Self as Quest) as DDNF_ExternalApi)
             If (EnablePapyrusLogging)
                 Debug.Trace("[DDNF] StorageUtil: SetFormValue(None, DDNF_ExternalApi, " + DDNF_Game.FormIdAsString(self) + ")")
-            ENdIf
+            EndIf
         EndIf
     EndIf
     ; refresh soft dependencies
@@ -175,17 +175,19 @@ Function RefreshWeaponDisplayArmors()
 EndFunction
 
 Function AddWeaponDisplayArmorsFromFormList(string fileName, Int formId)
-    Formlist armorList = Game.GetFormFromFile(formId, fileName) as FormList
-    If (armorList != None)
-        Int index = 0
-        Int end = armorList.GetSize()
-        While (index < end)
-            Armor armorForm = armorList.GetAt(index) as Armor
-            If (armorForm != None)
-                WeaponDisplayArmors.AddForm(armorForm)
-            EndIf
-            index += 1
-        EndWhile
+    If (Game.GetModByName(fileName) != 255)
+        Formlist armorList = Game.GetFormFromFile(formId, fileName) as FormList
+        If (armorList != None)
+            Int index = 0
+            Int end = armorList.GetSize()
+            While (index < end)
+                Armor armorForm = armorList.GetAt(index) as Armor
+                If (armorForm != None)
+                    WeaponDisplayArmors.AddForm(armorForm)
+                EndIf
+                index += 1
+            EndWhile
+        EndIf
     EndIf
 EndFunction
 

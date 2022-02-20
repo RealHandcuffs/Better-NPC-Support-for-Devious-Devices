@@ -19,6 +19,7 @@ Bool _isGagged
 Bool _isBlindfold
 Bool _isUnableToKick
 Bool _evadeCombat
+Bool _isInDeviousContraption
 
 ; variables tracking state of script
 ; there is also a script state, so this is not the whole picture
@@ -78,6 +79,8 @@ Function ForceRefTo(ObjectReference akNewRef) ; override
         _isBlindfold = false
         _isUnableToKick = false
         _evadeCombat = false
+        ObjectReference contraption = npcTracker.TryGetCurrentContraption(npc)
+        _isInDeviousContraption = contraption != None
         _fixupHighPriority = false
         _ignoreNotEquippedInNextFixup = false
         _waitingForFixup = false
@@ -98,9 +101,19 @@ Function ForceRefTo(ObjectReference akNewRef) ; override
             Else
                  _renderedDevices[0] = None
             EndIf
-            RegisterForFixup(16.0)
+            If (_isInDeviousContraption)
+                RegisterForFixup()
+            Else
+                RegisterForFixup(16.0)
+            EndIf
         Else
             RegisterForFixup()
+        EndIf
+        If (_isInDeviousContraption)
+            If (npcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] Detected " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " beeing in devious contraption, restoring position and idle.")
+            EndIf
+            DDNF_ZadcShim.RestoreContraptionPositionAndIdle(npc, contraption)
         EndIf
         _fixupLock = false
     EndIf
@@ -174,6 +187,19 @@ EndEvent
 
 
 Event OnLoad()
+    If (_isInDeviousContraption)
+        Actor npc = GetReference() as Actor
+        If (npc != None)
+            DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
+            ObjectReference contraption = npcTracker.TryGetCurrentContraption(npc)
+            If (contraption != None)
+                If (npcTracker.EnablePapyrusLogging)
+                    Debug.Trace("[DDNF] " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " in devious contraption on load, restoring position and idle.")
+                EndIf
+                DDNF_ZadcShim.RestoreContraptionPositionAndIdle(npc, contraption)
+            EndIf
+        EndIf
+    EndIf
     RegisterForFixup()
 EndEvent
 
@@ -345,13 +371,28 @@ EndEvent
 
 
 Event OnPackageStart(Package akNewPackage)
-    If (_hasAnimation)
-        DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
-        If (akNewPackage != npcTracker.BoundCombatNPCSandbox && akNewPackage != npcTracker.BoundNPCSandbox)
-            Package template = akNewPackage.GetTemplate()
-            If (template == npcTracker.Sandbox)
-                Actor npc = GetReference() as Actor
-                If (npc != None && npc.Is3DLoaded())
+    DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
+    Actor npc = GetReference() as Actor
+    If (npc != None)
+        ObjectReference contraption = npcTracker.TryGetCurrentContraption(npc)
+        If (contraption == None && _isInDeviousContraption || contraption != None && !_isInDeviousContraption)
+            ; npc was locked into or unlocked from devious contraption (detected by package change)
+            RegisterForFixup()
+        ElseIf (contraption != None)
+            npc.MoveTo(contraption)
+            Int waitCount = 0
+            While (contraption != None && contraption.IsEnabled() && waitCount < 40) ; contraption gets enabled at start of unlock sequence
+                Utility.Wait(0.25)
+                contraption = npcTracker.TryGetCurrentContraption(npc)
+                waitCount += 1
+            EndWhile
+            If (contraption == None)
+                RegisterForFixup()
+            EndIf
+        ElseIf (_hasAnimation)
+            If (akNewPackage != npcTracker.BoundCombatNPCSandbox && akNewPackage != npcTracker.BoundNPCSandbox)
+                Package template = akNewPackage.GetTemplate()
+                If (template == npcTracker.Sandbox && npc.Is3DLoaded())
                     ; npc switched to sandbox package (other than DD sandbox packages), check if we can kick them out of it again
                     If (npcTracker.EnablePapyrusLogging)
                         Debug.Trace("[DDNF] Trying to kick " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " out of sandboxing package.")
@@ -576,11 +617,18 @@ Event OnUpdate()
     EndIf
     _fixupLock = true ; we know it is currently false
     If (npcTracker.RestoreOriginalOutfit)
+        Bool outfitRestored = False
         ActorBase npcBase = npc.GetActorBase()
+        If (npcTracker.TryGetCurrentContraption(npc) != None)
+            outfitRestored = DDNF_ZadcShim.TryRestoreOutfit(npc)
+        EndIf
         Outfit originalOutfit = StorageUtil.GetFormValue(npcBase, "zad_OriginalOutfit") as Outfit
         If (originalOutfit != None && npcBase.GetOutfit() == npcTracker.DDLibs.zadEmptyOutfit) ; check current outfit to prevent race condition
             StorageUtil.UnSetFormValue(npcBase, "zad_OriginalOutfit")
             npc.SetOutfit(originalOutfit, false)
+            outfitRestored = true
+        EndIf
+        If (outfitRestored)
             If (enablePapyrusLogging)
                 Debug.Trace("[DDNF] Restored original outfit of " + formIdAndName + " and rescheduling fixup.")
             EndIf
@@ -622,6 +670,7 @@ Event OnUpdate()
     zadLibs ddLibs = npcTracker.DDLibs
     Int renderedDevicesFlags = _renderedDevicesFlags
     Bool scanForDevices = renderedDevicesFlags < 0
+    ObjectReference contraption
     If (scanForDevices)
         ; devices are not known, find and analyze them
         _renderedDevicesFlags = -12345 ; special tag
@@ -660,15 +709,19 @@ Event OnUpdate()
             _renderedDevicesFlags = renderedDevicesFlags
         EndIf
         npc.SetFactionRank(npcTracker.DeviceTargets, 0)
-    ElseIf (_renderedDevices[0] == None)
-        ; no devices present, remove NPC from alias
-        npc.RemoveFromFaction(npcTracker.DeviceTargets)
-        _fixupLock = false
-        If (enablePapyrusLogging)
-            Debug.Trace("[DDNF] Succeeded fixing up devices of " + formIdAndName + ", no devices found.")
+        contraption =  npcTracker.TryGetCurrentContraption(npc)
+    Else
+        contraption = npcTracker.TryGetCurrentContraption(npc)
+        If (_renderedDevices[0] == None && contraption == None && !_isInDeviousContraption)
+            ; no devices present and not in contraption, remove NPC from alias
+            npc.RemoveFromFaction(npcTracker.DeviceTargets)
+            _fixupLock = false
+            If (enablePapyrusLogging)
+                Debug.Trace("[DDNF] Succeeded fixing up devices of " + formIdAndName + ", no devices found.")
+            EndIf
+            Clear()
+            Return
         EndIf
-        Clear()
-        Return
     EndIf
     Int devicesWithMagicalEffectCount = Math.LogicalAnd(renderedDevicesFlags, 255)
     Bool isBound = Math.LogicalAnd(renderedDevicesFlags, 256) == 256
@@ -679,6 +732,17 @@ Event OnUpdate()
     Bool isBlindfold = Math.LogicalAnd(renderedDevicesFlags, 8192) == 8192
     Bool hasAnimation = Math.LogicalAnd(renderedDevicesFlags, 16384) == 16384
     Bool useUnarmedCombatPackage = isBound || hasBondageMittens
+    Bool isInDeviousContraption = contraption != None
+    If (isInDeviousContraption)
+        isBound = true
+        isUnableToKick = true
+        useUnarmedCombatPackage = true
+        If (!_isInDeviousContraption && npcTracker.EnablePapyrusLogging)
+            Debug.Trace("[DDNF] Detected " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " getting locked into devious contraption.")
+        EndIf
+    ElseIf (_isInDeviousContraption && npcTracker.EnablePapyrusLogging)
+        Debug.Trace("[DDNF] Detected " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " getting unlocked from devious contraption.")
+    EndIf
 
     ; step two: unequip and reequip all rendered devices to restart the effects
     ; from this point on we need to abort and restart the fixup if something changes
@@ -701,7 +765,7 @@ Event OnUpdate()
     ElseIf (dummyWeaponCount > 0)
         npc.RemoveItem(npcTracker.DummyWeapon, aiCount=dummyWeaponCount, abSilent=true)
     EndIf
-    Int checkBitmap = UnequipAndEquipDevices(npc, _renderedDevices, devicesWithMagicalEffectCount, ddLibs, enablePapyrusLogging)
+    Int checkBitmap = UnequipAndEquipDevices(npc, _renderedDevices, contraption, devicesWithMagicalEffectCount, ddLibs, enablePapyrusLogging)
     If (checkBitmap != 0)
         npc.UpdateWeight(0) ; workaround to force the game to correctly evaluate armor addon slots
         Int npcFormId = npc.GetFormID()
@@ -739,10 +803,12 @@ Event OnUpdate()
     EndIf
 
     ; step three: handle weapons and animation effects
-    If (hasAnimation || _hasAnimation)
+    If (!isInDeviousContraption && (hasAnimation || _hasAnimation || _isInDeviousContraption))
         zadBoundCombatScript boundCombat = ddLibs.BoundCombat
         Bool animationIsApplied = false
-        If (!scanForDevices || !hasAnimation)
+        If (_isInDeviousContraption)
+            animationIsApplied = !hasAnimation ; force re-evaluating animation when exiting contraption
+        ElseIf (!scanForDevices || !hasAnimation)
             ; use _mtidle animation to check if animations are applied
             Int fnisAaMtIdleCrc = npc.GetAnimationVariableInt("FNISaa_mtidle_crc")
             If (fnisAaMtIdleCrc != 0 && fnisAaMtIdleCrc == fnis_aa.GetInstallationCRC())
@@ -787,6 +853,8 @@ Event OnUpdate()
     _isGagged = isGagged
     _isBlindfold = isBlindfold
     _isUnableToKick = isUnableToKick
+    Bool oldIsInDeviousContraption = _isInDeviousContraption
+    _isInDeviousContraption = isInDeviousContraption
     Bool factionsModified = false
     If (useUnarmedCombatPackage)
         If (!_useUnarmedCombatPackage)
@@ -808,8 +876,12 @@ Event OnUpdate()
     If (factionsModified)
         npc.EvaluatePackage()
     EndIf
+    If (oldIsInDeviousContraption && !_isInDeviousContraption)
+        Float angleZ = npc.GetAngleZ()
+        npc.MoveTo(npc, 32 * Math.Sin(angleZ), 32 * Math.Cos(angleZ), 0.0) ; move to prevent getting stuck on device geometry
+    EndIf
     _lastFixupRealTime = Utility.GetCurrentRealTime()
-    If (_renderedDevicesFlags >= 0 && _renderedDevices[0] == None)
+    If (_renderedDevicesFlags >= 0 && _renderedDevices[0] == None && !_isInDeviousContraption)
         ; no devices found, reschedule scan to remove NPC
         If (enablePapyrusLogging)
             Debug.Trace("[DDNF] No devices found for " + formIdAndName + ", rescheduling another fixup in 16 seconds.")
@@ -822,7 +894,7 @@ Event OnUpdate()
     If (enablePapyrusLogging)
         Debug.Trace("[DDNF] Succeeded fixing up devices of " + formIdAndName + ", running after-fixup actions.")
     EndIf
-    If (!oldHasAnimation && _hasAnimation && !_fixupLock)
+    If (!oldHasAnimation && _hasAnimation && !_fixupLock && !_isInDeviousContraption)
         OnPackageStart(npc.GetCurrentPackage())
     EndIf
     If (_useUnarmedCombatPackage && !_fixupLock)
@@ -1179,18 +1251,22 @@ EndFunction
 
 
 ; unequip and reequip devices, return a bitmap for the devices to check
-Int Function UnequipAndEquipDevices(Actor npc, Armor[] renderedDevices, Int devicesWithMagicalEffectCount, zadLibs ddLibs, Bool enablePapyrusLogging) Global
+Int Function UnequipAndEquipDevices(Actor npc, Armor[] renderedDevices, ObjectReference contraption, Int devicesWithMagicalEffectCount, zadLibs ddLibs, Bool enablePapyrusLogging) Global
     Int bitmapToCheck = 0
     Int index = 0
     While (index < renderedDevices.Length && renderedDevices[index] != None)
         Bool needsReequip = false
+        Bool hideDevice = false
+        If (contraption != None)
+            hideDevice = DDNF_ZadcShim.HideRenderedDeviceForContraption(renderedDevices[index], contraption)
+        EndIf
         If (npc.IsEquipped(renderedDevices[index]))
             ; unequip devices with magical effects
-            If (index < devicesWithMagicalEffectCount)
+            If (hideDevice || index < devicesWithMagicalEffectCount)
                 npc.UnequipItem(renderedDevices[index], abPreventEquip=true, abSilent=true)
-                needsReequip = true
+                needsReequip = !hideDevice
             EndIf
-        Else
+        ElseIf (!hideDevice)
             ; sometimes a conflicting "armor" from another mod is blocking the rendered device
             ; a known mod causing this issue is AllGUD with its various displayed things
             ; work around the issue by force-unequipping the conflicting armor
@@ -1759,7 +1835,7 @@ Bool Function IsCurrentFollower(Actor npc, DDNF_NpcTracker npcTracker) Global
        Package currentPackage = npc.GetCurrentPackage()
        result = currentPackage.GetTemplate() == npcTracker.FollowerPackageTemplate
     EndIf
-    If (!result)
+    If (!result && npcTracker.DawnguardModId != 255)
         ActorBase npcBase = npc.GetActorBase()
         If (npcBase == Game.GetFormFromFile(0x002B6C, "Dawnguard.esm")) ; DLC1Serana
             ; Serana's AI is different than that of any other follower, so CurrentFollowerFaction is not working
@@ -2670,6 +2746,15 @@ Bool Function UseUnarmedCombatAnimations()
         Return npc != None && (npc.GetItemCount(ddLibs.zad_DeviousHeavyBondage) > 0 || npc.GetItemCount(ddLibs.zad_DeviousBondageMittens) > 0)
     EndIf
     Return _useUnarmedCombatPackage
+EndFunction
+
+Bool Function IsInDeviousContraption()
+    If (_renderedDevicesFlags < 0)
+        DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
+        Actor npc = GetReference() as Actor
+        Return npc != None && npcTracker.TryGetCurrentContraption(npc) != None
+    EndIf
+    Return _isInDeviousContraption
 EndFunction
 
 Int Function TryGetEquippedDevices(Armor[] outputArray, Keyword optionalKeywordForRenderedDevice)

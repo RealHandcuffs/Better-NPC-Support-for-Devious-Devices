@@ -147,6 +147,10 @@ Event OnPageReset(string page)
                 statesArray[statesCount] = "unarmed combat"
                 statesCount += 1
             EndIf
+            If (api.IsInDeviousContraption(trackingId))
+                statesArray[statesCount] = "devious contraption"
+                statesCount += 1
+            EndIf
             _npcStates = Utility.CreateStringArray(statesCount)
             Int statesIndex = 0
             While (statesIndex < statesCount)

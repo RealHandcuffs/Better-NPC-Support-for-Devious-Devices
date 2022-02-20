@@ -196,3 +196,6 @@ Version 0.6
 - Do not apply bound idle to sleeping or unconsious NPCs
 - Prevent sleeping or unconscious NPCs from struggling
 - Script changes to allow conversion of mod to .esl
+
+Version 0.7 beta 1
+- TODO
