@@ -198,4 +198,4 @@ Version 0.6
 - Script changes to allow conversion of mod to .esl
 
 Version 0.7 beta 1
-- TODO
+- Add basic support for devious contraptions.

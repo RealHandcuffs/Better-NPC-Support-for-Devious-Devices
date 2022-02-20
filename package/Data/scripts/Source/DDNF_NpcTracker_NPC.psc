@@ -104,7 +104,7 @@ Function ForceRefTo(ObjectReference akNewRef) ; override
             If (_isInDeviousContraption)
                 RegisterForFixup()
             Else
-                RegisterForFixup(16.0)
+                RegisterForFixup(Utility.RandomFloat(48.0, 64.0)) ; jitter
             EndIf
         Else
             RegisterForFixup()
@@ -884,9 +884,9 @@ Event OnUpdate()
     If (_renderedDevicesFlags >= 0 && _renderedDevices[0] == None && !_isInDeviousContraption)
         ; no devices found, reschedule scan to remove NPC
         If (enablePapyrusLogging)
-            Debug.Trace("[DDNF] No devices found for " + formIdAndName + ", rescheduling another fixup in 16 seconds.")
+            Debug.Trace("[DDNF] No devices found for " + formIdAndName + ", rescheduling another fixup later.")
         EndIf
-        RegisterForFixup(16.0)
+        RegisterForFixup(Utility.RandomFloat(48.0, 64.0)) ; jitter
     EndIf
     _fixupLock = false
 
