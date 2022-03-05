@@ -49,6 +49,7 @@ Int Property DeviousDevicesIntegrationModId Auto
 Int Property DawnguardModId Auto
 Int Property DeviouslyCursedLootModId Auto
 Int Property DeviousContraptionsModId Auto
+Int Property PahExtensionModId Auto
 
 Alias[] _cachedAliases ; performance optimization
 Form[] _cachedNpcs ; performance optimization
@@ -126,6 +127,7 @@ Function HandleGameLoaded(Bool upgrade)
     EndIf
     DeviouslyCursedLootModId = Game.GetModByName("Deviously Cursed Loot.esp")
     DeviousContraptionsModId = Game.GetModByName("Devious Devices - Contraptions.esm")
+    PahExtensionModId = Game.GetModByName("paradise_halls_SLExtension.esp")
     ; notify all alias scripts
     Int index = 0
     Alias[] aliases = GetAliases()

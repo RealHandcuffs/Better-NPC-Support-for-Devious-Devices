@@ -57,3 +57,13 @@ Bool Function TryRestoreOutfit(Actor npc) Global
     EndIf
     Return false
 EndFunction
+
+Function RestorePositionIfNecessary(Actor npc) Global
+    ObjectReference contraption = TryGetCurrentContraption(npc)
+    If (contraption != None)
+        Float distance = npc.GetDistance(contraption)
+        If (distance > 16)
+            npc.MoveTo(contraption)
+        EndIf
+    EndIf
+EndFunction

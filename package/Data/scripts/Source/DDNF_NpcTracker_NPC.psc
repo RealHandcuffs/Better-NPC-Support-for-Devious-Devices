@@ -1547,6 +1547,9 @@ Event OnUpdateGameTime()
     Actor npc = GetReference() as Actor
     DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
     If (npc != None && npcTracker.IsEnabled)
+        If (_isInDeviousContraption)
+            DDNF_ZadcShim.RestorePositionIfNecessary(npc)
+        EndIf
         Bool registerForUpdate = true
         If (npcTracker.EscapeSystemEnabled && !npc.IsUnconscious() && npc.GetSleepState() <= 2)
             Int struggleFrequency
@@ -1554,6 +1557,10 @@ Event OnUpdateGameTime()
                 struggleFrequency = npcTracker.CurrentFollowerStruggleFrequency
             Else
                 struggleFrequency = npcTracker.OtherNpcStruggleFrequency
+            EndIf
+            Bool isPaheSlave = npcTracker.PahExtensionModId != 255 && DDNF_PaheShim.IsPaheSlave(npc)
+            If (isPaheSlave && DDNF_PaheShim.IsSubmissive(npc))
+                struggleFrequency = 0
             EndIf
             If (struggleFrequency != 0)
                 ; escape system is enabled for this NPC
@@ -1566,6 +1573,10 @@ Event OnUpdateGameTime()
                 ElseIf (currentGameTime < _nextEscapeAttemptMinGameTime)
                     If (npcTracker.EnablePapyrusLogging)
                         Debug.Trace("[DDNF] Escape system: Not triggering attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " (_nextEscapeAttemptMinGameTime=" + _nextEscapeAttemptMinGameTime + " [" + ((_nextEscapeAttemptMinGameTime - currentGameTime) * 24) + "h]).")
+                    EndIf
+                ElseIf (isPaheSlave && DDNF_PaheShim.IsAfraid(npc))
+                    If (npcTracker.EnablePapyrusLogging)
+                        Debug.Trace("[DDNF] Escape system: Not triggering attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " (PAHE slave and afraid).")
                     EndIf
                 Else
                     If (_nextExpectedOnUpdateGameTime > 0 && (currentGameTime - _nextExpectedOnUpdateGameTime) >= 0.02083333333)

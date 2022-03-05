@@ -199,3 +199,8 @@ Version 0.6
 
 Version 0.7 beta 1
 - Add basic support for devious contraptions.
+
+Version 0.7 beta 2
+- Prevent submissive PAHE slaves from struggling
+- Prevent afraid PAHE slaves from struggling
+- Small improvements to handling of contraptions
