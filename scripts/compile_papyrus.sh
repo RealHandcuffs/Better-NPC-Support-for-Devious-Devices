@@ -113,9 +113,9 @@ function compile_folder() {
     files+=( "$f" )
     if [[ $SE == 0 ]]
     then
-      "$DIR_SKYRIM_CREATION_KIT/Papyrus Compiler/PapyrusCompiler.exe" "$f" -optimize -quiet -flags="$(cygpath -w "$PAPYRUS_SOURCE/TESV_Papyrus_Flags.flg")" -import="$(cygpath -w "$PAPYRUS_SOURCE");$(cygpath -w "$PAPYRUS_SOURCE/Dawnguard")" -output="$(cygpath -w "$BASE_DIR/build/$2")" &
+      "$DIR_SKYRIM_CREATION_KIT/Papyrus Compiler/PapyrusCompiler.exe" "$f" -optimize -quiet -flags="$(cygpath -w "$PAPYRUS_SOURCE/TESV_Papyrus_Flags.flg")" -import="$(cygpath -w "$BASE_DIR/stubs");$(cygpath -w "$BASE_DIR/3rdPartyDependencies");$(cygpath -w "$PAPYRUS_SOURCE");$(cygpath -w "$PAPYRUS_SOURCE/Dawnguard")" -output="$(cygpath -w "$BASE_DIR/build/$2")" &
     else
-      "$DIR_SKYRIM_SE_CREATION_KIT/Papyrus Compiler/PapyrusCompiler.exe" "$f" -optimize -quiet -flags="$(cygpath -w "$PAPYRUS_SOURCE/TESV_Papyrus_Flags.flg")" -import="$(cygpath -w "$SKSE_SOURCE");$(cygpath -w "$PAPYRUS_SOURCE")" -output="$(cygpath -w "$BASE_DIR/build/$2")" &
+      "$DIR_SKYRIM_SE_CREATION_KIT/Papyrus Compiler/PapyrusCompiler.exe" "$f" -optimize -quiet -flags="$(cygpath -w "$PAPYRUS_SOURCE/TESV_Papyrus_Flags.flg")" -import="$(cygpath -w "$BASE_DIR/stubs");$(cygpath -w "$BASE_DIR/3rdPartyDependencies");$(cygpath -w "$SKSE_SOURCE");$(cygpath -w "$PAPYRUS_SOURCE")" -output="$(cygpath -w "$BASE_DIR/build/$2")" &
     fi
     pids+=( "$!" )
   done

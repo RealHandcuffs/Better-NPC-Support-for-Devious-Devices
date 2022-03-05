@@ -1595,7 +1595,7 @@ Event OnUpdateGameTime()
                         rescheduleReason = "is player teammate and player is sneaking"
                     ElseIf (npc.IsOnMount())
                         rescheduleReason = "is on mount"
-                    ElseIf (npc.IsInFaction(npcTracker.ddLibs.Sexlab.AnimatingFaction))
+                    ElseIf (npcTracker.ddLibs.Sexlab.IsActorActive(npc))
                         rescheduleReason = "is animated by sexlab"
                     ElseIf (npc.HasMagicEffectWithKeyword(npcTracker.MagicInfluenceCharm))
                         rescheduleReason = "is charmed"
@@ -2228,7 +2228,7 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool struggle
     Bool enablePapyrusLogging = npcTracker.EnablePapyrusLogging
 
     ; analyze the device and calculate escape chances
-    ObjectReference tempRef = ddLibs.PlayerRef.PlaceAtMe(device, abInitiallyDisabled = true)
+    ObjectReference tempRef = npcTracker.Player.PlaceAtMe(device, abInitiallyDisabled = true)
     zadEquipScript equipScript = tempRef as zadEquipScript
     If (equipScript == None) ; not expected but handle it
         tempRef.Delete()
