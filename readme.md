@@ -16,7 +16,7 @@ Make sure that SKSE is installed correctly (including script sources), and that 
 - open git bash and `cd` to the folder where you want to have the repo
 - clone the repo using `git clone https://github.com/RealHandcuffs/Better-NPC-Support-for-Devious-Devices.git`
 - change to the repo root (e.g. `cd Better\ NPC\ Support\ for\ Devious\ Devices/`)
-- if you want to build a branch other than `master`, check out that branch using `git switch <branch-name>`
+- if you want to build a branch other than `master`, check out that branch using `git switch branch-name`
 - build the mod using `scripts/build.sh` for LE, or `scripts/build.sh --se` for SE
 
 The build script will create a .7z file and place it in the `build` folder. Install that file with your mod manager. 
