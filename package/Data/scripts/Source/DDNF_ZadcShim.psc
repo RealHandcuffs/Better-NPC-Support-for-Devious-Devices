@@ -67,3 +67,13 @@ Function RestorePositionIfNecessary(Actor npc) Global
         EndIf
     EndIf
 EndFunction
+
+Function EnableModEvents(ObjectReference contraption, Bool enablePapyrusLogging) Global
+    zadcFurnitureScript furn = contraption as zadcFurnitureScript
+    If (furn != None && !furn.SendDeviceModEvents)
+        furn.SendDeviceModEvents = true
+        If (enablePapyrusLogging)
+            Debug.Trace("[DDNF] Enabled device mod events for " + DDNF_Game.FormIdAsString(contraption) + " " + contraption.GetDisplayName() + ".")
+        EndIf
+    EndIf
+EndFunction

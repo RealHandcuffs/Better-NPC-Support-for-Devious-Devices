@@ -129,14 +129,14 @@ EndFunction
 
 
 ;
-; Check whether a currently tracked NPC is in a devious contraption.
+; Check whether a currently tracked NPC is in a bondage device.
 ;
-Bool Function IsInDeviousContraption(Int trackingId)
+Bool Function IsInBondageDevice(Int trackingId)
     If (trackingId >= 0)
         Alias[] aliases = ((Self as Quest) as DDNF_NpcTracker).GetAliases()
         If (trackingId < aliases.Length)
             DDNF_NpcTracker_NPC npcTracker = aliases[trackingId] as DDNF_NpcTracker_NPC
-            Return npcTracker.IsInDeviousContraption()
+            Return npcTracker.IsInBondageDevice()
         EndIf
     EndIf
     Return false

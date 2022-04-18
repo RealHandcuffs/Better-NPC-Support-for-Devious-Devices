@@ -147,8 +147,8 @@ Event OnPageReset(string page)
                 statesArray[statesCount] = "unarmed combat"
                 statesCount += 1
             EndIf
-            If (api.IsInDeviousContraption(trackingId))
-                statesArray[statesCount] = "devious contraption"
+            If (api.IsInBondageDevice(trackingId))
+                statesArray[statesCount] = "bondage device"
                 statesCount += 1
             EndIf
             _npcStates = Utility.CreateStringArray(statesCount)

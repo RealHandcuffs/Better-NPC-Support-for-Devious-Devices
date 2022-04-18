@@ -9,6 +9,7 @@ Scriptname zadcFurnitureScript extends ObjectReference
 
 Bool Property HideAllDevices Auto
 Keyword[] Property InvalidDevices Auto
+Bool Property SendDeviceModEvents Auto
 
 Package Function PickRandomPose()
     Return None

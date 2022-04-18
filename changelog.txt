@@ -205,3 +205,7 @@ Version 0.7 beta 2
 - Prevent afraid PAHE slaves from struggling
 - Small improvements to handling of contraptions
 - Changes to build system: Use stubs for most dependencies
+
+Version 0.7 beta 3
+- Do not break animations of bound PAHE slaves
+- Tell PAHE framework when slave is locked in devious contraption

@@ -19,7 +19,7 @@ Bool _isGagged
 Bool _isBlindfold
 Bool _isUnableToKick
 Bool _evadeCombat
-Bool _isInDeviousContraption
+Bool _isInBondageDevice
 
 ; variables tracking state of script
 ; there is also a script state, so this is not the whole picture
@@ -80,7 +80,7 @@ Function ForceRefTo(ObjectReference akNewRef) ; override
         _isUnableToKick = false
         _evadeCombat = false
         ObjectReference contraption = npcTracker.TryGetCurrentContraption(npc)
-        _isInDeviousContraption = contraption != None
+        _isInBondageDevice = contraption != None
         _fixupHighPriority = false
         _ignoreNotEquippedInNextFixup = false
         _waitingForFixup = false
@@ -101,7 +101,7 @@ Function ForceRefTo(ObjectReference akNewRef) ; override
             Else
                  _renderedDevices[0] = None
             EndIf
-            If (_isInDeviousContraption)
+            If (_isInBondageDevice)
                 RegisterForFixup()
             Else
                 RegisterForFixup(Utility.RandomFloat(48.0, 64.0)) ; jitter
@@ -109,11 +109,18 @@ Function ForceRefTo(ObjectReference akNewRef) ; override
         Else
             RegisterForFixup()
         EndIf
-        If (_isInDeviousContraption)
+        If (_isInBondageDevice && npcTracker.PahExtensionModId != 255 && DDNF_PaheShim.IsPaheSlave(npc) && !DDNF_PaheShim.IsTied(npc))
+            DDNF_PaheShim.SetDummyTiedUpState(npc) ; tell PAHE that slave is tied up
             If (npcTracker.EnablePapyrusLogging)
-                Debug.Trace("[DDNF] Detected " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " beeing in devious contraption, restoring position and idle.")
+                Debug.Trace("[DDNF] Set PAHE slave " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " tied state.")
+            EndIf
+        EndIf
+        If (contraption != None)
+            If (npcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] Detected " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " in contraption, restoring position and idle.")
             EndIf
             DDNF_ZadcShim.RestoreContraptionPositionAndIdle(npc, contraption)
+            DDNF_ZadcShim.EnableModEvents(contraption, npcTracker.EnablePapyrusLogging)
         EndIf
         _fixupLock = false
     EndIf
@@ -187,7 +194,7 @@ EndEvent
 
 
 Event OnLoad()
-    If (_isInDeviousContraption)
+    If (_isInBondageDevice)
         Actor npc = GetReference() as Actor
         If (npc != None)
             DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
@@ -375,19 +382,37 @@ Event OnPackageStart(Package akNewPackage)
     Actor npc = GetReference() as Actor
     If (npc != None)
         ObjectReference contraption = npcTracker.TryGetCurrentContraption(npc)
-        If (contraption == None && _isInDeviousContraption || contraption != None && !_isInDeviousContraption)
-            ; npc was locked into or unlocked from devious contraption (detected by package change)
+        Bool isInBondageDevice = contraption != None
+        If (!isInBondageDevice && _isInBondageDevice || isInBondageDevice && !_isInBondageDevice)
             RegisterForFixup()
-        ElseIf (contraption != None)
-            npc.MoveTo(contraption)
-            Int waitCount = 0
-            While (contraption != None && contraption.IsEnabled() && waitCount < 40) ; contraption gets enabled at start of unlock sequence
-                Utility.Wait(0.25)
-                contraption = npcTracker.TryGetCurrentContraption(npc)
-                waitCount += 1
-            EndWhile
-            If (contraption == None)
-                RegisterForFixup()
+        ElseIf (isInBondageDevice)
+            Bool removedPahePackages = false
+            If (npcTracker.PahExtensionModId != 255 && DDNF_PaheShim.IsTied(npc))
+                Int modId = DDNF_Game.GetModId(akNewPackage.GetFormID());
+                If (modId == npcTracker.PahExtensionModId || modId == npcTracker.PahModId)
+                    DDNF_PaheShim.RemoveDoNothingPackages(npc)
+                    If (npcTracker.EnablePapyrusLogging)
+                        Debug.Trace("[DDNF] Removed PAHE 'do nothing' packages from " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ".")
+                    EndIf
+                    removedPahePackages = true
+                EndIf
+            EndIf
+            If (contraption != None)
+                npc.MoveTo(contraption)
+                Int waitCount = 0
+                While (contraption != None && contraption.IsEnabled() && waitCount < 40) ; contraption gets enabled at start of unlock sequence
+                    Utility.Wait(0.25)
+                    contraption = npcTracker.TryGetCurrentContraption(npc)
+                    waitCount += 1
+                EndWhile
+                If (contraption == None)
+                    RegisterForFixup()
+                ElseIf (removedPahePackages)
+                    If (npcTracker.EnablePapyrusLogging)
+                        Debug.Trace("[DDNF] Detected " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " in contraption, restoring position and idle.")
+                    EndIf
+                    DDNF_ZadcShim.RestoreContraptionPositionAndIdle(npc, contraption)
+                EndIf
             EndIf
         ElseIf (_hasAnimation)
             If (akNewPackage != npcTracker.BoundCombatNPCSandbox && akNewPackage != npcTracker.BoundNPCSandbox)
@@ -398,7 +423,7 @@ Event OnPackageStart(Package akNewPackage)
                         Debug.Trace("[DDNF] Trying to kick " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " out of sandboxing package.")
                     EndIf
                     Int npcFormId = npc.GetFormID()
-                    If (DDNF_Game.GetModId(npcFormId) == npcTracker.DawnguardModId && DDNF_DLC1Shim.IsSerana(npcFormId))
+                    If (DDNF_Game.GetModId(npcFormId) == npcTracker.DawnguardModId && DDNF_DLC1Shim.IsSerana(npcFormId) && DDNF_Game.GetModId(akNewPackage.GetFormID()) == npcTracker.DawnguardModId)
                         ; Serana's AI is different than that of any other follower, so the DD npc slots are not working
                         DDNF_DLC1Shim.KickSeranaFromSandboxPackage(npc)
                     Else
@@ -478,13 +503,10 @@ Auto State AliasEmpty
 Event OnDeath(Actor akKiller)
 EndEvent
 
-Event OnCellAttach()
+Event OnLoad()
 EndEvent
 
-Event OnAttachedToCell()
-EndEvent
-
-Event OnCellDetach()
+Event OnUnload()
 EndEvent
 
 Event OnItemAdded(Form akBaseItem, int aiItemCount, ObjectReference akItemReference, ObjectReference akSourceContainer)
@@ -671,6 +693,7 @@ Event OnUpdate()
     Int renderedDevicesFlags = _renderedDevicesFlags
     Bool scanForDevices = renderedDevicesFlags < 0
     ObjectReference contraption
+    Bool isInBondageDevice
     If (scanForDevices)
         ; devices are not known, find and analyze them
         _renderedDevicesFlags = -12345 ; special tag
@@ -709,11 +732,13 @@ Event OnUpdate()
             _renderedDevicesFlags = renderedDevicesFlags
         EndIf
         npc.SetFactionRank(npcTracker.DeviceTargets, 0)
-        contraption =  npcTracker.TryGetCurrentContraption(npc)
+        contraption = npcTracker.TryGetCurrentContraption(npc)
+        isInBondageDevice = contraption != None
     Else
         contraption = npcTracker.TryGetCurrentContraption(npc)
-        If (_renderedDevices[0] == None && contraption == None && !_isInDeviousContraption)
-            ; no devices present and not in contraption, remove NPC from alias
+        isInBondageDevice = contraption != None
+        If (_renderedDevices[0] == None && !isInBondageDevice && !_isInBondageDevice)
+            ; no devices present and not in bondage device, remove NPC from alias
             npc.RemoveFromFaction(npcTracker.DeviceTargets)
             _fixupLock = false
             If (enablePapyrusLogging)
@@ -732,16 +757,40 @@ Event OnUpdate()
     Bool isBlindfold = Math.LogicalAnd(renderedDevicesFlags, 8192) == 8192
     Bool hasAnimation = Math.LogicalAnd(renderedDevicesFlags, 16384) == 16384
     Bool useUnarmedCombatPackage = isBound || hasBondageMittens
-    Bool isInDeviousContraption = contraption != None
-    If (isInDeviousContraption)
+    If (isInBondageDevice)
         isBound = true
         isUnableToKick = true
         useUnarmedCombatPackage = true
-        If (!_isInDeviousContraption && npcTracker.EnablePapyrusLogging)
-            Debug.Trace("[DDNF] Detected " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " getting locked into devious contraption.")
+        If (!_isInBondageDevice)
+            If (enablePapyrusLogging)
+                Debug.Trace("[DDNF] Detected " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " getting locked into bondage device.")
+            EndIf
+            If (contraption != None)
+                DDNF_ZadcShim.EnableModEvents(contraption, enablePapyrusLogging)
+            EndIf
+            If (npcTracker.PahExtensionModId != 255 && DDNF_PaheShim.IsPaheSlave(npc) && !DDNF_PaheShim.IsTied(npc))
+                DDNF_PaheShim.SetDummyTiedUpState(npc) ; tell PAHE that slave is tied up
+                If (npcTracker.EnablePapyrusLogging)
+                    Debug.Trace("[DDNF] Set PAHE slave " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " tied state.")
+                EndIf
+                If (contraption != None)
+                    DDNF_ZadcShim.RestoreContraptionPositionAndIdle(npc, contraption)
+                    If (npcTracker.EnablePapyrusLogging)
+                        Debug.Trace("[DDNF] Restored contraption position and idle of " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ".")
+                    EndIf
+                EndIf
+            EndIf
         EndIf
-    ElseIf (_isInDeviousContraption && npcTracker.EnablePapyrusLogging)
-        Debug.Trace("[DDNF] Detected " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " getting unlocked from devious contraption.")
+    ElseIf (_isInBondageDevice && npcTracker.EnablePapyrusLogging)
+        If (enablePapyrusLogging)
+            Debug.Trace("[DDNF] Detected " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " getting unlocked from bondage device.")
+        EndIf
+        If (npcTracker.PahExtensionModId != 255 && DDNF_PaheShim.IsPaheSlave(npc) && DDNF_PaheShim.IsTied(npc))
+            DDNF_PaheShim.ClearTiedUpState(npc) ; tell PAHE that slave is no longer tied up
+            If (enablePapyrusLogging)
+                Debug.Trace("[DDNF] Cleared PAHE slave " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " tied state.")
+            EndIf
+        EndIf
     EndIf
 
     ; step two: unequip and reequip all rendered devices to restart the effects
@@ -803,10 +852,10 @@ Event OnUpdate()
     EndIf
 
     ; step three: handle weapons and animation effects
-    If (!isInDeviousContraption && (hasAnimation || _hasAnimation || _isInDeviousContraption))
+    If (!isInBondageDevice && (hasAnimation || _hasAnimation || _isInBondageDevice))
         zadBoundCombatScript boundCombat = ddLibs.BoundCombat
         Bool animationIsApplied = false
-        If (_isInDeviousContraption)
+        If (_isInBondageDevice)
             animationIsApplied = !hasAnimation ; force re-evaluating animation when exiting contraption
         ElseIf (!scanForDevices || !hasAnimation)
             ; use _mtidle animation to check if animations are applied
@@ -853,8 +902,8 @@ Event OnUpdate()
     _isGagged = isGagged
     _isBlindfold = isBlindfold
     _isUnableToKick = isUnableToKick
-    Bool oldIsInDeviousContraption = _isInDeviousContraption
-    _isInDeviousContraption = isInDeviousContraption
+    Bool oldIsInBondageDevice = _isInBondageDevice
+    _isInBondageDevice = isInBondageDevice
     Bool factionsModified = false
     If (useUnarmedCombatPackage)
         If (!_useUnarmedCombatPackage)
@@ -876,12 +925,12 @@ Event OnUpdate()
     If (factionsModified)
         npc.EvaluatePackage()
     EndIf
-    If (oldIsInDeviousContraption && !_isInDeviousContraption)
+    If (oldIsInBondageDevice && !_isInBondageDevice)
         Float angleZ = npc.GetAngleZ()
         npc.MoveTo(npc, 32 * Math.Sin(angleZ), 32 * Math.Cos(angleZ), 0.0) ; move to prevent getting stuck on device geometry
     EndIf
     _lastFixupRealTime = Utility.GetCurrentRealTime()
-    If (_renderedDevicesFlags >= 0 && _renderedDevices[0] == None && !_isInDeviousContraption)
+    If (_renderedDevicesFlags >= 0 && _renderedDevices[0] == None && !_isInBondageDevice)
         ; no devices found, reschedule scan to remove NPC
         If (enablePapyrusLogging)
             Debug.Trace("[DDNF] No devices found for " + formIdAndName + ", rescheduling another fixup later.")
@@ -894,8 +943,11 @@ Event OnUpdate()
     If (enablePapyrusLogging)
         Debug.Trace("[DDNF] Succeeded fixing up devices of " + formIdAndName + ", running after-fixup actions.")
     EndIf
-    If (!oldHasAnimation && _hasAnimation && !_fixupLock && !_isInDeviousContraption)
+    If ((_hasAnimation || _isInBondageDevice) && !_fixupLock)
         OnPackageStart(npc.GetCurrentPackage())
+    EndIf
+    If (!_isInBondageDevice && npcTracker.PahExtensionModId != 255 && DDNF_PaheShim.IsTied(npc) && !_fixupLock)
+        DDNF_PAHEShim.RestorePoseIfNecessary(npc)
     EndIf
     If (_useUnarmedCombatPackage && !_fixupLock)
         If (!UnequipWeapons(npc, npcTracker.DummyWeapon) && !_fixupLock)
@@ -1200,7 +1252,9 @@ Bool Function FixInconsistentDevices(Actor npc, Armor[] newRenderedDevices, Armo
         If (Math.LogicalAnd(cumulatedSlotMask, slotMask) != 0)
             If (newRenderedDevices.RFind(renderedDevice, index - 1) > 0)
                 npc.RemoveItem(renderedDevice, aiCount=npc.GetItemCount(renderedDevice) - 1, abSilent=true)
-                Debug.Trace("[DDNF] Removed duplicate rendered device " + DDNF_Game.FormIdAsString(renderedDevice) + " from " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ".")
+                If (enablePapyrusLogging)
+                    Debug.Trace("[DDNF] Removed duplicate rendered device " + DDNF_Game.FormIdAsString(renderedDevice) + " from " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ".")
+                EndIf
                 Return true
             EndIf
             Int deviceFlags = AnalyzeMaybeDevice(ddLibs, ddLibs.zad_Lockable, true, ddLibs.zad_DeviousPlug, true, renderedDevice, false, enablePapyrusLogging)
@@ -1547,7 +1601,7 @@ Event OnUpdateGameTime()
     Actor npc = GetReference() as Actor
     DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
     If (npc != None && npcTracker.IsEnabled)
-        If (_isInDeviousContraption)
+        If (_isInBondageDevice && npcTracker.DeviousContraptionsModId != 255)
             DDNF_ZadcShim.RestorePositionIfNecessary(npc)
         EndIf
         Bool registerForUpdate = true
@@ -1558,8 +1612,7 @@ Event OnUpdateGameTime()
             Else
                 struggleFrequency = npcTracker.OtherNpcStruggleFrequency
             EndIf
-            Bool isPaheSlave = npcTracker.PahExtensionModId != 255 && DDNF_PaheShim.IsPaheSlave(npc)
-            If (isPaheSlave && DDNF_PaheShim.IsSubmissive(npc))
+            If (npcTracker.PahExtensionModId != 255 && DDNF_PaheShim.IsSubmissive(npc))
                 struggleFrequency = 0
             EndIf
             If (struggleFrequency != 0)
@@ -1574,7 +1627,7 @@ Event OnUpdateGameTime()
                     If (npcTracker.EnablePapyrusLogging)
                         Debug.Trace("[DDNF] Escape system: Not triggering attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " (_nextEscapeAttemptMinGameTime=" + _nextEscapeAttemptMinGameTime + " [" + ((_nextEscapeAttemptMinGameTime - currentGameTime) * 24) + "h]).")
                     EndIf
-                ElseIf (isPaheSlave && DDNF_PaheShim.IsAfraid(npc))
+                ElseIf (npcTracker.PahExtensionModId != 255 && DDNF_PaheShim.IsAfraid(npc))
                     If (npcTracker.EnablePapyrusLogging)
                         Debug.Trace("[DDNF] Escape system: Not triggering attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " (PAHE slave and afraid).")
                     EndIf
@@ -1673,7 +1726,16 @@ Int Function PerformEscapeAttempt(Bool suppressNotifications, Bool respectCooldo
     EndIf
     If (npcTracker.TryGetCurrentContraption(npc) != None)
         If (npcTracker.EnablePapyrusLogging)
-            Debug.Trace("[DDNF] Aborting escape attempt for " + npcFormIdAndName + " because npc is in devious contraption.")
+            Debug.Trace("[DDNF] Aborting escape attempt for " + npcFormIdAndName + " because npc is in bondage device.")
+        EndIf
+        If (npc == (GetReference() as Actor))
+            _lastEscapeAttemptGameTime = Utility.GetCurrentGameTime()
+        EndIf
+        Return -1
+    EndIf
+    If (npcTracker.PahExtensionModId != 255 && DDNF_PaheShim.IsTied(npc))
+        If (npcTracker.EnablePapyrusLogging)
+            Debug.Trace("[DDNF] Aborting escape attempt for " + npcFormIdAndName + " because npc is a tied PAHE slave.")
         EndIf
         If (npc == (GetReference() as Actor))
             _lastEscapeAttemptGameTime = Utility.GetCurrentGameTime()
@@ -1747,13 +1809,13 @@ Int Function PerformEscapeAttempt(Bool suppressNotifications, Bool respectCooldo
                     If (struggleLimit > 0)
                         If ((failedDeviceCount - didNotStruggleDeviceCount) >= struggleLimit)
                             abortEscapeAttempt = true
-                            If (npcTracker.enablePapyrusLogging)
+                            If (npcTracker.EnablePapyrusLogging)
                                 Debug.Trace("[DDNF] Escape attempt (" + npcFormIdAndName +  "): Early abort due to reaching limit of " + npcTracker.AbortStrugglingAfterFailedDevices + ".")
                             EndIf
                         EndIf
                     EndIf
                     If (!abortEscapeAttempt && failedDeviceCount == failedDevices.Length) ; not expected but handle it
-                        If (npcTracker.enablePapyrusLogging)
+                        If (npcTracker.EnablePapyrusLogging)
                            Debug.Trace("[DDNF] Escape attempt (" + npcFormIdAndName +  "): Early abort due to running out of array space.")
                         EndIf
                         abortEscapeAttempt = true
@@ -1951,7 +2013,7 @@ Armor Function ChooseDeviceForUnequip(Bool unequipSelf, Armor[] devicesToIgnore,
     EndIf
     DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
     If (unequipSelf && npcTracker.TryGetCurrentContraption(npc) != None)
-        Return None ; NPC is currently held by devious contraption
+        Return None ; NPC is currently in bondage device
     EndIf
     Armor[] inventoryDevices = new Armor[32]
     Int deviceCount = TryGetEquippedDevices(inventoryDevices, None)
@@ -2759,13 +2821,13 @@ Bool Function UseUnarmedCombatAnimations()
     Return _useUnarmedCombatPackage
 EndFunction
 
-Bool Function IsInDeviousContraption()
+Bool Function IsInBondageDevice()
     If (_renderedDevicesFlags < 0)
         DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
         Actor npc = GetReference() as Actor
         Return npc != None && npcTracker.TryGetCurrentContraption(npc) != None
     EndIf
-    Return _isInDeviousContraption
+    Return _isInBondageDevice
 EndFunction
 
 Int Function TryGetEquippedDevices(Armor[] outputArray, Keyword optionalKeywordForRenderedDevice)

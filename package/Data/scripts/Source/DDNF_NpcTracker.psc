@@ -49,6 +49,7 @@ Int Property DeviousDevicesIntegrationModId Auto
 Int Property DawnguardModId Auto
 Int Property DeviouslyCursedLootModId Auto
 Int Property DeviousContraptionsModId Auto
+Int Property PahModId Auto
 Int Property PahExtensionModId Auto
 
 Alias[] _cachedAliases ; performance optimization
@@ -127,6 +128,7 @@ Function HandleGameLoaded(Bool upgrade)
     EndIf
     DeviouslyCursedLootModId = Game.GetModByName("Deviously Cursed Loot.esp")
     DeviousContraptionsModId = Game.GetModByName("Devious Devices - Contraptions.esm")
+    PahModId = Game.GetModByName("paradise_halls.esm")
     PahExtensionModId = Game.GetModByName("paradise_halls_SLExtension.esp")
     ; notify all alias scripts
     Int index = 0
@@ -372,6 +374,7 @@ Function HandleDeviceRemoved(Actor akActor, Armor inventoryDevice)
                 index += 1
             EndWhile
         EndIf
+        Return
     EndIf
     Utility.Wait(2) ; allow some time for things to work
     Armor renderedDevice = GetRenderedDevice(inventoryDevice, false)
@@ -386,6 +389,19 @@ Function HandleDeviceRemoved(Actor akActor, Armor inventoryDevice)
     EndIf
 EndFunction
 
+;
+; Called when an actor is locked into or unlocked from a devious contraption, if the contraption has SendDeviceModEvents == true.
+; It is false by default but we are trying to detect locking by observing package changes and then set it to true.
+;
+Function HandleDeviceEvent(Actor akActor, ObjectReference deviousContraption, Bool lock)
+    If (akActor != Player)
+        Int index = GetNpcs().Find(akActor)
+        If (index >= 0)
+            DDNF_NpcTracker_NPC tracker = GetAliases()[index] as DDNF_NpcTracker_NPC
+            tracker.RegisterForFixup()
+        EndIf
+    EndIf
+EndFunction
 
 ;
 ; Called after each scanner run of the main quest.
