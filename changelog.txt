@@ -208,4 +208,6 @@ Version 0.7 beta 2
 
 Version 0.7 beta 3
 - Do not break animations of bound PAHE slaves
-- Tell PAHE framework when slave is locked in devious contraption
+- Set PAHE slaves to "tied up" state when locked in devious contraption
+- Bound NPCs evading combat will no longer use "combat ready" stance, they will only change stance when they decide to fight
+- Make restoring weapon access when unequipping heavy bondage more reliable

@@ -50,7 +50,7 @@ EndFunction
 
 Function HandleOptionsChanged(Bool useBoundCombat)
     Actor npc = GetReference() as Actor
-    If (npc != None && _useUnarmedCombatPackage && UpdateHelplessState(npc, GetOwningQuest() as DDNF_NpcTracker, true))
+    If (npc != None && _useUnarmedCombatPackage && UpdateHelplessState(npc, GetOwningQuest() as DDNF_NpcTracker))
         UpdateEvadeCombat(npc, GetOwningQuest() as DDNF_NpcTracker)
         npc.EvaluatePackage()
     EndIf
@@ -159,6 +159,8 @@ Function Clear() ; override
                 EndIf
                 If (_isHelpless)
                     npc.RemoveFromFaction(npcTracker.Helpless)
+                EndIf
+                If (_evadeCombat || _isHelpless)
                     ; restore ability to draw weapons by changing equipped weapons
                     UnequipWeapons(npc)
                     npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
@@ -338,7 +340,9 @@ Event OnCombatStateChanged(Actor akTarget, Int aeCombatState)
         If (npc != None)
             DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
             If (aeCombatState == 1)
-                UnequipWeapons(npc) ; combat override package will make sure NPC is only using unarmed combat
+                If (!_evadeCombat)
+                    UnequipWeapons(npc) ; combat override package will make sure NPC is only using unarmed combat
+                EndIf
             Else
                 If (!UnequipWeapons(npc, npcTracker.DummyWeapon) && npc.GetItemCount(npcTracker.DummyWeapon) > 0)
                     npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
@@ -365,7 +369,7 @@ Event OnAnimationEvent(ObjectReference akSource, string asEventName)
             If (!UnequipWeapons(npc, npcTracker.DummyWeapon) && npc.GetItemCount(npcTracker.DummyWeapon) > 0) ; for some reason the game sometimes keeps equipment in the left hand even though DummyWeapon is two-handed
                 npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
             EndIf
-            If (_isHelpless)
+            If (_isHelpless || _evadeCombat)
                 Debug.SendAnimationEvent(npc, "IdleForceDefaultState") ; will prevent drawing weapons again
                 npc.SheatheWeapon()
             EndIf
@@ -450,6 +454,7 @@ Function HandleHitFrom(Actor attacker, Form akSource)
                 If (_evadeCombat) ; double-check to catch race condition
                     _evadeCombat = false
                     npc.RemoveFromFaction(npcTracker.EvadeCombat)
+                    UnequipWeapons(npc) ; combat override package will make sure NPC is only using unarmed combat
                     npc.EvaluatePackage()
                 EndIf
             EndIf
@@ -804,15 +809,13 @@ Event OnUpdate()
             npc.RemoveFromFaction(panelGagFaction) ; dito
         EndIf
     EndIf
-    Int dummyWeaponCount = npc.GetItemCount(npcTracker.DummyWeapon)
     If (useUnarmedCombatPackage)
+        Int dummyWeaponCount = npc.GetItemCount(npcTracker.DummyWeapon)
         If (dummyWeaponCount == 0)
             npc.AddItem(npcTracker.DummyWeapon, 1, true)
         ElseIf (dummyWeaponCount > 1)
             npc.RemoveItem(npcTracker.DummyWeapon, aiCount=dummyWeaponCount - 1, abSilent=true)
         EndIf
-    ElseIf (dummyWeaponCount > 0)
-        npc.RemoveItem(npcTracker.DummyWeapon, aiCount=dummyWeaponCount, abSilent=true)
     EndIf
     Int checkBitmap = UnequipAndEquipDevices(npc, _renderedDevices, contraption, devicesWithMagicalEffectCount, ddLibs, enablePapyrusLogging)
     If (checkBitmap != 0)
@@ -852,6 +855,9 @@ Event OnUpdate()
     EndIf
 
     ; step three: handle weapons and animation effects
+    If (_useUnarmedCombatPackage && !useUnarmedCombatPackage)
+        UnregisterForAnimationEvent(npc, "BeginWeaponDraw")
+    EndIf
     If (!isInBondageDevice && (hasAnimation || _hasAnimation || _isInBondageDevice))
         zadBoundCombatScript boundCombat = ddLibs.BoundCombat
         Bool animationIsApplied = false
@@ -865,32 +871,32 @@ Event OnUpdate()
                 animationIsApplied = IsInFnisGroup(fnisAaMtIdle, boundCombat.ABC_mtidle) || IsInFnisGroup(fnisAaMtIdle, boundCombat.HBC_mtidle) || IsInFnisGroup(fnisAaMtIdle, boundCombat.PON_mtidle)
             EndIf
         EndIf
+        Bool restoreWeaponAccess = false
         If (hasAnimation && animationIsApplied)
             ; un/reequipping devices can break the current idle and replace it with the default idle, restart the bound idle
             If (!npc.IsInFaction(ddLibs.zadAnimatingFaction) && !npc.IsUnconscious() && npc.GetSleepState() <= 2)
                 Debug.SendAnimationEvent(npc, "IdleForceDefaultState")
+                restoreWeaponAccess = !_isHelpless && !_evadeCombat && npc.IsWeaponDrawn()
             EndIf
         ElseIf (hasAnimation != animationIsApplied)
             If (enablePapyrusLogging)
                 Debug.Trace("[DDNF] Reevaluating animations of " + formIdAndName + ".")
             EndIf
+            UnregisterForAnimationEvent(npc, "BeginWeaponDraw") ; unregister while we are running EvaluateAA
             ; modifying animations will cause a weird state where the NPC cannot draw weapons if they are currently drawn
             ; this can be reverted by changing the equipped weapons of the npc
             If (useUnarmedCombatPackage && !UnequipWeapons(npc, npcTracker.DummyWeapon)) ; equipped shields during EvaluateAA can cause animation issues
                 npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
             EndIf
-            Bool restoreWeaponAccess = npc.IsWeaponDrawn()
+            restoreWeaponAccess = !_isHelpless && !_evadeCombat && npc.IsWeaponDrawn()
             boundCombat.EvaluateAA(npc) ; very expensive call
-            If (restoreWeaponAccess)
-                ; restore ability to draw weapons by changing equipped weapons
-                UnequipWeapons(npc)
-            EndIf
+            restoreWeaponAccess = restoreWeaponAccess || !_isHelpless && !_evadeCombat && npc.IsWeaponDrawn()
         EndIf
-    EndIf
-    If (useUnarmedCombatPackage)
-        RegisterForAnimationEvent(npc, "BeginWeaponDraw") ; register even if we think that we are already registered
-    ElseIf (_useUnarmedCombatPackage)
-        UnregisterForAnimationEvent(npc, "BeginWeaponDraw")
+        If (restoreWeaponAccess)
+            ; restore ability to draw weapons by changing equipped weapons
+            npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
+            npc.UnequipItem(npcTracker.DummyWeapon, abSilent=true)
+        EndIf
     EndIf
     ; almost done, so do not abort and reschedule if another fixup is scheduled, just let things run their normal course instead
 
@@ -916,11 +922,14 @@ Event OnUpdate()
         _useUnarmedCombatPackage = false
         factionsModified = true
     EndIf
-    If (UpdateHelplessState(npc, npcTracker, false))
+    If (UpdateHelplessState(npc, npcTracker))
         factionsModified = true
     EndIf
     If (UpdateEvadeCombat(npc, npcTracker))
         factionsModified = true
+    EndIf
+    If (_useUnarmedCombatPackage)
+        RegisterForAnimationEvent(npc, "BeginWeaponDraw") ; register after setting up variables used by event
     EndIf
     If (factionsModified)
         npc.EvaluatePackage()
@@ -974,14 +983,14 @@ Event OnUpdate()
     EndIf
 EndEvent
 
-Bool Function UpdateHelplessState(Actor npc, DDNF_NpcTracker npcTracker, Bool updateWeponState) ; returns true if factions were modified
+Bool Function UpdateHelplessState(Actor npc, DDNF_NpcTracker npcTracker) ; returns true if factions were modified
     Bool isHelpless = _isBound && (_isUnableToKick || !npcTracker.UseBoundCombat)
     If (isHelpless)
         If (!_isHelpless)
             _isHelpless = true
             npc.SetFactionRank(npcTracker.Helpless, 0)
-            If (updateWeponState && npc.IsWeaponDrawn())
-                If (!UnequipWeapons(npc, npcTracker.DummyWeapon) && npc.GetItemCount(npcTracker.DummyWeapon) > 0)
+            If (npc.IsWeaponDrawn())
+                If (!UnequipWeapons(npc, npcTracker.DummyWeapon))
                     npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
                 EndIf
                 Debug.SendAnimationEvent(npc, "IdleForceDefaultState") ; will prevent drawing weapons again
@@ -992,8 +1001,9 @@ Bool Function UpdateHelplessState(Actor npc, DDNF_NpcTracker npcTracker, Bool up
     ElseIf (_isHelpless)
         npc.RemoveFromFaction(npcTracker.Helpless)
         _isHelpless = false
-        If (updateWeponState)
-            UnequipWeapons(npc)
+        If (!_evadeCombat)
+            npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
+            npc.UnequipItem(npcTracker.DummyWeapon, abSilent=true)
         EndIf
         Return true
     EndIf
@@ -1012,11 +1022,22 @@ Bool Function UpdateEvadeCombat(Actor npc, DDNF_NpcTracker npcTracker)
         If (!_evadeCombat)
             _evadeCombat = true
             npc.SetFactionRank(npcTracker.EvadeCombat, 0)
+            If (npc.IsWeaponDrawn())
+                If (!UnequipWeapons(npc, npcTracker.DummyWeapon))
+                    npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
+                EndIf
+                Debug.SendAnimationEvent(npc, "IdleForceDefaultState") ; will prevent drawing weapons again
+                npc.SheatheWeapon()
+            EndIf
             Return true
         EndIf
     ElseIf (_evadeCombat)
         _evadeCombat = false
         npc.RemoveFromFaction(npcTracker.EvadeCombat)
+        If (!_isHelpless)
+            npc.EquipItem(npcTracker.DummyWeapon, abPreventRemoval=true, abSilent=true)
+            npc.UnequipItem(npcTracker.DummyWeapon, abSilent=true)
+        EndIf
         Return true
     EndIf
     Return false
@@ -1601,9 +1622,6 @@ Event OnUpdateGameTime()
     Actor npc = GetReference() as Actor
     DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
     If (npc != None && npcTracker.IsEnabled)
-        If (_isInBondageDevice && npcTracker.DeviousContraptionsModId != 255)
-            DDNF_ZadcShim.RestorePositionIfNecessary(npc)
-        EndIf
         Bool registerForUpdate = true
         If (npcTracker.EscapeSystemEnabled && !npc.IsUnconscious() && npc.GetSleepState() <= 2)
             Int struggleFrequency
