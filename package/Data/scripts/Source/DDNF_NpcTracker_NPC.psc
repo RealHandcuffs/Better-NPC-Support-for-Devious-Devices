@@ -242,14 +242,19 @@ Function HandleItemAddedRemoved(Form akBaseItem, ObjectReference akSourceDestCon
         Float delayOverride = -1
         If (maybeArmor != None)
             If (npcTracker.RestoreOriginalOutfit)
+                Bool outfitRestored = False
+                If (npcTracker.TryGetCurrentContraption(npc) != None)
+                    outfitRestored = DDNF_ZadcShim.TryRestoreOutfit(npc)
+                EndIf
                 ActorBase npcBase = npc.GetActorBase()
                 Outfit originalOutfit = StorageUtil.GetFormValue(npcBase, "zad_OriginalOutfit") as Outfit
                 If (originalOutfit != None && npcBase.GetOutfit() == npcTracker.DDLibs.zadEmptyOutfit) ; check current outfit to prevent race condition
                     StorageUtil.UnSetFormValue(npcBase, "zad_OriginalOutfit")
                     npc.SetOutfit(originalOutfit, false)
-                    If (npcTracker.EnablePapyrusLogging)
-                        Debug.Trace("[DDNF] Restored original outfit of " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ".")
-                    EndIf
+                    outfitRestored = true
+                EndIf
+                If (outfitRestored && npcTracker.EnablePapyrusLogging)
+                    Debug.Trace("[DDNF] Restored original outfit of " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + ".")
                 EndIf
             EndIf
             Bool isInventoryDevice = DDNF_NpcTracker.GetRenderedDevice(maybeArmor, false) != None
@@ -645,10 +650,10 @@ Event OnUpdate()
     _fixupLock = true ; we know it is currently false
     If (npcTracker.RestoreOriginalOutfit)
         Bool outfitRestored = False
-        ActorBase npcBase = npc.GetActorBase()
         If (npcTracker.TryGetCurrentContraption(npc) != None)
             outfitRestored = DDNF_ZadcShim.TryRestoreOutfit(npc)
         EndIf
+        ActorBase npcBase = npc.GetActorBase()
         Outfit originalOutfit = StorageUtil.GetFormValue(npcBase, "zad_OriginalOutfit") as Outfit
         If (originalOutfit != None && npcBase.GetOutfit() == npcTracker.DDLibs.zadEmptyOutfit) ; check current outfit to prevent race condition
             StorageUtil.UnSetFormValue(npcBase, "zad_OriginalOutfit")
