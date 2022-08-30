@@ -36,6 +36,7 @@ Float _nextEscapeAttemptMinGameTime
 
 Function HandleGameLoaded(Bool upgrade)
     _lastFixupRealTime = 0.0 ; reset on game load
+    ForwardZazKeywords() ; they are lost on game load
     If (upgrade)
         Actor npc = GetReference() as Actor
         If (npc == None)
@@ -110,7 +111,7 @@ Function ForceRefTo(ObjectReference akNewRef) ; override
             RegisterForFixup()
         EndIf
         If (_isInBondageDevice && npcTracker.PahExtensionModId != 255 && DDNF_PaheShim.IsPaheSlave(npc) && !DDNF_PaheShim.IsTied(npc))
-            DDNF_PaheShim.SetDummyTiedUpState(npc) ; tell PAHE that slave is tied up
+            DDNF_PaheShim.SetRestrainedInFurniture(npc, contraption, npcTracker.PahDomModId != 255) ; tell PAHE that slave is restrained in furniture
             If (npcTracker.EnablePapyrusLogging)
                 Debug.Trace("[DDNF] Set PAHE slave " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " tied state.")
             EndIf
@@ -397,7 +398,7 @@ Event OnPackageStart(Package akNewPackage)
         ElseIf (isInBondageDevice)
             Bool removedPahePackages = false
             If (npcTracker.PahExtensionModId != 255 && DDNF_PaheShim.IsTied(npc))
-                Int modId = DDNF_Game.GetModId(akNewPackage.GetFormID());
+                Int modId = DDNF_Game.GetModId(akNewPackage.GetFormID())
                 If (modId == npcTracker.PahExtensionModId || modId == npcTracker.PahModId)
                     DDNF_PaheShim.RemoveDoNothingPackages(npc)
                     If (npcTracker.EnablePapyrusLogging)
@@ -648,6 +649,14 @@ Event OnUpdate()
         Return
     EndIf
     _fixupLock = true ; we know it is currently false
+    If (npcTracker.PamaFurnitureModId != 255 && DDNF_Game.GetModId(npc.GetCurrentPackage().GetFormID()) == npcTracker.PamaFurnitureModId)
+        _fixupLock = false
+        If (enablePapyrusLogging)
+            Debug.Trace("[DDNF] Postponing fixup of " + formIdAndName + " by 8s (in Pama furniture).")
+        EndIf
+        RegisterForFixup(8.0)
+        Return
+    EndIf
     If (npcTracker.RestoreOriginalOutfit)
         Bool outfitRestored = False
         If (npcTracker.TryGetCurrentContraption(npc) != None)
@@ -779,7 +788,7 @@ Event OnUpdate()
                 DDNF_ZadcShim.EnableModEvents(contraption, enablePapyrusLogging)
             EndIf
             If (npcTracker.PahExtensionModId != 255 && DDNF_PaheShim.IsPaheSlave(npc) && !DDNF_PaheShim.IsTied(npc))
-                DDNF_PaheShim.SetDummyTiedUpState(npc) ; tell PAHE that slave is tied up
+                DDNF_PaheShim.SetRestrainedInFurniture(npc, contraption, npcTracker.PahDomModId != 255) ; tell PAHE that slave is restrained in furniture
                 If (npcTracker.EnablePapyrusLogging)
                     Debug.Trace("[DDNF] Set PAHE slave " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " tied state.")
                 EndIf
@@ -796,7 +805,7 @@ Event OnUpdate()
             Debug.Trace("[DDNF] Detected " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " getting unlocked from bondage device.")
         EndIf
         If (npcTracker.PahExtensionModId != 255 && DDNF_PaheShim.IsPaheSlave(npc) && DDNF_PaheShim.IsTied(npc))
-            DDNF_PaheShim.ClearTiedUpState(npc) ; tell PAHE that slave is no longer tied up
+            DDNF_PaheShim.ClearRestrainedInFurniture(npc) ; tell PAHE that slave is no longer restrained in furniture
             If (enablePapyrusLogging)
                 Debug.Trace("[DDNF] Cleared PAHE slave " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " tied state.")
             EndIf
@@ -957,11 +966,8 @@ Event OnUpdate()
     If (enablePapyrusLogging)
         Debug.Trace("[DDNF] Succeeded fixing up devices of " + formIdAndName + ", running after-fixup actions.")
     EndIf
-    If ((_hasAnimation || _isInBondageDevice) && !_fixupLock)
-        OnPackageStart(npc.GetCurrentPackage())
-    EndIf
-    If (!_isInBondageDevice && npcTracker.PahExtensionModId != 255 && DDNF_PaheShim.IsTied(npc) && !_fixupLock)
-        DDNF_PAHEShim.RestorePoseIfNecessary(npc)
+    If (!_fixupLock)
+        KickEscapeSystem(false)
     EndIf
     If (_useUnarmedCombatPackage && !_fixupLock)
         If (!UnequipWeapons(npc, npcTracker.DummyWeapon) && !_fixupLock)
@@ -981,7 +987,13 @@ Event OnUpdate()
         EndIf
     EndIf
     If (!_fixupLock)
-        KickEscapeSystem(false)
+        ForwardZazKeywords()
+    EndIf
+    If ((_hasAnimation || _isInBondageDevice) && !_fixupLock)
+        OnPackageStart(npc.GetCurrentPackage())
+    EndIf
+    If (!_isInBondageDevice && npcTracker.PahExtensionModId != 255 && DDNF_PaheShim.IsTied(npc) && !_fixupLock)
+        DDNF_PAHEShim.RestorePoseIfNecessary(npc)
     EndIf
     If (enablePapyrusLogging)
         Debug.Trace("[DDNF] Finished after-fixup actions for " + formIdAndName + ".")
@@ -1046,6 +1058,30 @@ Bool Function UpdateEvadeCombat(Actor npc, DDNF_NpcTracker npcTracker)
         Return true
     EndIf
     Return false
+EndFunction
+
+Function ForwardZazKeywords()
+    If (_renderedDevicesFlags > 0 && _isGagged)
+        DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
+        If (npcTracker.Po3PapyrusExtenderAvailable && npcTracker.ZbfWornGag != None)
+            ; put ZbfWornGag keyword on DD gag
+            Int index = 0
+            Int count = Math.LogicalAnd(_renderedDevicesFlags, 255)
+            While (index < count && _renderedDevicesFlags >= 0)
+                Int deviceFlags = StorageUtil.GetIntValue(_renderedDevices[index], "ddnf_a", -1)
+                If (deviceFlags < 0)
+                    zadLibs ddLibs = npcTracker.ddLibs
+                    deviceFlags = AnalyzeMaybeDevice(ddLibs, ddLibs.zad_Lockable, true, ddLibs.zad_DeviousPlug, true, _renderedDevices[index], false, npcTracker.EnablePapyrusLogging)
+                EndIf
+                If (Math.LogicalAnd(deviceFlags, 32) == 32) ; ignore devices without known flags
+                    DDNF_Po3PapyrusExtenderShim.AddKeywordToForm(_renderedDevices[index], npcTracker.ZbfWornGag)
+                    index = _renderedDevices.Length
+                Else
+                    index += 1
+                EndIf
+            EndWhile
+        EndIf
+    EndIf
 EndFunction
 
 
@@ -1635,9 +1671,6 @@ Event OnUpdateGameTime()
             Else
                 struggleFrequency = npcTracker.OtherNpcStruggleFrequency
             EndIf
-            If (npcTracker.PahExtensionModId != 255 && DDNF_PaheShim.IsSubmissive(npc))
-                struggleFrequency = 0
-            EndIf
             If (struggleFrequency != 0)
                 ; escape system is enabled for this NPC
                 Float currentGameTime = Utility.GetCurrentGameTime()
@@ -1650,9 +1683,9 @@ Event OnUpdateGameTime()
                     If (npcTracker.EnablePapyrusLogging)
                         Debug.Trace("[DDNF] Escape system: Not triggering attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " (_nextEscapeAttemptMinGameTime=" + _nextEscapeAttemptMinGameTime + " [" + ((_nextEscapeAttemptMinGameTime - currentGameTime) * 24) + "h]).")
                     EndIf
-                ElseIf (npcTracker.PahExtensionModId != 255 && DDNF_PaheShim.IsAfraid(npc))
+                ElseIf (npcTracker.PahExtensionModId != 255 && !DDNF_PaheShim.StartMovingByFormula(npc))
                     If (npcTracker.EnablePapyrusLogging)
-                        Debug.Trace("[DDNF] Escape system: Not triggering attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " (PAHE slave and afraid).")
+                        Debug.Trace("[DDNF] Escape system: Not triggering attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " (PAHE slave decided to not struggle).")
                     EndIf
                 Else
                     If (_nextExpectedOnUpdateGameTime > 0 && (currentGameTime - _nextExpectedOnUpdateGameTime) >= 0.02083333333)
@@ -1677,6 +1710,8 @@ Event OnUpdateGameTime()
                         rescheduleReason = "is charmed"
                     ElseIf (npc.GetCurrentScene() != None)
                         rescheduleReason = "is in scene"
+                    ElseIf (npcTracker.PamaFurnitureModId != 255 && DDNF_Game.GetModId(npc.GetCurrentPackage().GetFormID()) == npcTracker.PamaFurnitureModId)
+                        rescheduleReason = "in in Pama furniture"
                     EndIf
                     If (rescheduleReason != "")
                         If (npcTracker.EnablePapyrusLogging)

@@ -51,6 +51,10 @@ Int Property DeviouslyCursedLootModId Auto
 Int Property DeviousContraptionsModId Auto
 Int Property PahModId Auto
 Int Property PahExtensionModId Auto
+Int Property PahDomModId Auto
+Int Property PamaFurnitureModId Auto
+Bool Property Po3PapyrusExtenderAvailable Auto
+Keyword Property ZbfWornGag Auto
 
 Alias[] _cachedAliases ; performance optimization
 Form[] _cachedNpcs ; performance optimization
@@ -130,6 +134,12 @@ Function HandleGameLoaded(Bool upgrade)
     DeviousContraptionsModId = Game.GetModByName("Devious Devices - Contraptions.esm")
     PahModId = Game.GetModByName("paradise_halls.esm")
     PahExtensionModId = Game.GetModByName("paradise_halls_SLExtension.esp")
+    PahDomModId = Game.GetModByName("DiaryOfMine.esp")
+    PamaFurnitureModId = Game.GetModByName("PamaFurnitureScr.esp")
+    Po3PapyrusExtenderAvailable = DDNF_Po3PapyrusExtenderShim.IsAvailable()
+    If (Game.GetModByName("ZaZAnimationPack.esm"))
+        ZbfWornGag = Game.GetFormFromFile(0x008A4D, "ZaZAnimationPack.esm") as Keyword
+    EndIf
     ; notify all alias scripts
     Int index = 0
     Alias[] aliases = GetAliases()

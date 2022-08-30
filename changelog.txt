@@ -207,7 +207,9 @@ Version 0.7 beta 2
 - Changes to build system: Use stubs for most dependencies
 
 Version 0.7 beta 3
-- Do not break animations of bound PAHE slaves
-- Set PAHE slaves to "tied up" state when locked in devious contraption
 - Bound NPCs evading combat will no longer use "combat ready" stance, they will only change stance when they decide to fight
 - Make restoring weapon access when unequipping heavy bondage more reliable
+- Forward zazWornGag keyword to DD gags if Powerofthree's Papyrus Extender is installed
+- Do not break animations of bound PAHE slaves
+- Improve logic that descides if PAHE slaves will struggle
+- Set PAHE slaves to "tied up" state when locked in devious contraption

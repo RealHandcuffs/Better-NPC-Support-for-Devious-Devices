@@ -8,16 +8,6 @@ Bool Function IsPaheSlave(Actor npc) Global
     Return npc.IsInFaction(PAHPlayerSlaveFaction)
 EndFunction
 
-Bool Function IsAfraid(Actor slave) Global
-    Faction PAHMoodAfaid = Game.GetFormFromFile(0x0565AB, "paradise_halls.esm") as Faction
-    Return slave.IsInFaction(PAHMoodAfaid)
-EndFunction
-
-Bool Function IsSubmissive(Actor slave) Global
-    Faction PAHSubmission = Game.GetFormFromFile(0x0047EB, "paradise_halls.esm") as Faction
-    Return slave.GetFactionRank(PAHSubmission) >= 60
-EndFunction
-
 Bool Function IsTied(Actor slave) Global
     Faction PAHBETied = Game.GetFormFromFile(0x01EBF6, "paradise_halls_SLExtension.esp") as Faction
     Return slave.IsInFaction(PAHBETied)
@@ -25,18 +15,22 @@ EndFunction
 
 Function RestorePoseIfNecessary(Actor slave) Global
     PAHCore pCore = Game.GetFormFromFile(0x01FAEF, "paradise_halls.esm") as PAHCore
-    PAHSlave pSlave = pCore.GetSlave(slave)
+    PAHSlave pSlave = pCore.GetSlaveAlias(slave) as PAHSlave
     If (pSlave != None && pSlave.GetState() == "tied")
         pSlave.PlayTieUpAnimation()
     EndIf
 EndFunction
 
-Function SetDummyTiedUpState(Actor slave) Global
+Function SetRestrainedInFurniture(Actor slave, ObjectReference theFurniture, Bool domInstalled) Global
     PAHCore pCore = Game.GetFormFromFile(0x01FAEF, "paradise_halls.esm") as PAHCore
-    PAHSlave pSlave = pCore.GetSlave(slave)
+    PAHSlave pSlave = pCore.GetSlaveAlias(slave) as PAHSlave
     If (pSlave != None)
-        pSlave.TieUp(pCore.CuffsIron, Enter = true)
-        pSlave.ChangeTiePose("")
+        If (domInstalled)
+            pSlave.SetRestrainedInFurniture(theFurniture, "", "")
+        Else
+            pSlave.TieUp(pCore.CuffsIron, Enter = true) ; use "tied" state for PAHE without DOM
+            pSlave.ChangeTiePose("")
+        EndIf
         ActorUtil.RemovePackageOverride(slave, pSlave.DoNothing)
         ActorUtil.RemovePackageOverride(slave, pSlave.PAHDoNothing)
     EndIf
@@ -44,7 +38,7 @@ EndFunction
 
 Function RemoveDoNothingPackages(Actor slave) Global
     PAHCore pCore = Game.GetFormFromFile(0x01FAEF, "paradise_halls.esm") as PAHCore
-    PAHSlave pSlave = pCore.GetSlave(slave)
+    PAHSlave pSlave = pCore.GetSlaveAlias(slave) as PAHSlave
     If (pSlave != None)
         ActorUtil.RemovePackageOverride(slave, pSlave.DoNothing)
         ActorUtil.RemovePackageOverride(slave, pSlave.PAHDoNothing)
@@ -52,10 +46,16 @@ Function RemoveDoNothingPackages(Actor slave) Global
     EndIf
 EndFunction
 
-Function ClearTiedUpState(Actor slave) Global
+Function ClearRestrainedInFurniture(Actor slave) Global
     PAHCore pCore = Game.GetFormFromFile(0x01FAEF, "paradise_halls.esm") as PAHCore
-    PAHSlave pSlave = pCore.GetSlave(slave)
+    PAHSlave pSlave = pCore.GetSlaveAlias(slave) as PAHSlave
     If (pSlave != None)
         pSlave.TieUp(pCore.CuffsIron, Enter = false)
     EndIf
+EndFunction
+
+Bool Function StartMovingByFormula(Actor slave) Global
+    PAHCore pCore = Game.GetFormFromFile(0x01FAEF, "paradise_halls.esm") as PAHCore
+    PAHSlaveMind pMind = pCore.GetSlaveAlias(slave) as PAHSlaveMind
+    Return pMind == None || pMind.StartMovingByFormula()
 EndFunction
