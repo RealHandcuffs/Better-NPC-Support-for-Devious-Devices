@@ -213,3 +213,7 @@ Version 0.7 beta 3
 - Do not break animations of bound PAHE slaves
 - Improve logic that descides if PAHE slaves will struggle
 - Set PAHE slaves to "tied up" state when locked in devious contraption
+
+Version 0.7 beta 4
+- add very limited support for ZAP Helper Addon
+- escape system: make NPCs more responsive when receiving keys

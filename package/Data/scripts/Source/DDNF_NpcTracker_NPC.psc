@@ -221,6 +221,10 @@ Event OnItemAdded(Form akBaseItem, int aiItemCount, ObjectReference akItemRefere
     If (!_quickEquipRunning)
         HandleItemAddedRemoved(akBaseItem, akSourceContainer)
     EndIf
+    Key itemAsKey = akBaseItem as Key
+    If (itemAsKey != None && !IsStruggling())
+        HandleKeyReceived(itemAsKey, aiItemCount)
+    EndIf
 EndEvent
 
 
@@ -276,6 +280,47 @@ Function HandleItemAddedRemoved(Form akBaseItem, ObjectReference akSourceDestCon
     EndIf
 EndFunction
 
+Function HandleKeyReceived(Key itemAsKey, int aiItemCount)
+    If (_renderedDevicesFlags >= 0 && _nextEscapeAttemptMinGameTime != 0)
+        Actor npc = GetReference() as Actor
+        DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
+        If (npc != None && npcTracker.EscapeSystemEnabled)
+            Bool handsBlocked = npc.GetItemCount(npcTracker.DDLibs.zad_DeviousBondageMittens) > 0 || npc.GetItemCount(npcTracker.DDLibs.zad_DeviousStraitJacket) > 0
+            Float currentGameTime = Utility.GetCurrentGameTime()
+            If (!handsBlocked && currentGameTime < _nextEscapeAttemptMinGameTime)
+                Armor[] inventoryDevices = new Armor[32]
+                Int deviceCount = TryGetEquippedDevices(inventoryDevices, None)
+                Bool receivedKeysForEquippedDevice = false
+                Int index = 0
+                While (index < deviceCount && !IsStruggling())
+                    String storageUtilTag = "ddnf_e_t" + DDNF_NpcTracker.GetOrCreateUniqueTag(inventoryDevices[index])
+                    Float deviceMinGameTime = StorageUtil.GetFloatValue(npc, storageUtilTag, 0)
+                    If (deviceMinGameTime > 0)
+                        ObjectReference tempRef = npcTracker.Player.PlaceAtMe(inventoryDevices[index], abInitiallyDisabled = true)
+                        zadEquipScript equipScript = tempRef as zadEquipScript
+                        If (equipScript != None && itemAsKey == equipScript.deviceKey)
+                            Int currentKeys = npc.GetItemCount(itemAsKey)
+                            If (currentKeys >= equipScript.NumberOfKeysNeeded && (currentKeys - aiItemCount) < equipScript.NumberOfKeysNeeded && equipScript.LockAccessDifficulty < 100)
+                                If (npcTracker.EnablePapyrusLogging)
+                                    Debug.Trace("[DDNF] " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " received keys for device " +  DDNF_Game.FormIdAsString(inventoryDevices[index]) + " " + inventoryDevices[index].GetName() + ", setting cooldown for device to zero.")
+                                EndIf
+                                StorageUtil.SetFloatValue(npc, storageUtilTag, currentGameTime)
+                                receivedKeysForEquippedDevice = true
+                            EndIf
+                        EndIf
+                        tempRef.Delete()
+                    EndIf
+                    index += 1
+                EndWhile
+                If (receivedKeysForEquippedDevice && !IsStruggling())
+                    _lastEscapeAttemptGameTime = -99
+                    _nextEscapeAttemptMinGameTime = currentGameTime
+                    KickEscapeSystem(true)
+                EndIf
+            EndIf
+        EndIf
+    EndIf
+EndFunction
 
 Event OnObjectEquipped(Form akBaseObject, ObjectReference akReference)
     Actor npc = GetReference() as Actor
@@ -1624,7 +1669,7 @@ Function KickEscapeSystem(Bool highUrgencyMode)
             DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
             If (highUrgencyMode)
                 _lastEscapeAttemptGameTime = -49 ; special value
-                Float randomDelay = Utility.RandomFloat(0.1, 0.25) ; use shorter delay for high-priority mode
+                Float randomDelay = Utility.RandomFloat(0.05, 0.15) ; use shorter delay for high-priority mode
                 _nextExpectedOnUpdateGameTime = Utility.GetCurrentGameTime() + randomDelay
                 RegisterForSingleUpdateGameTime(randomDelay)
                 If (npcTracker.EnablePapyrusLogging)
@@ -1687,6 +1732,10 @@ Event OnUpdateGameTime()
                     If (npcTracker.EnablePapyrusLogging)
                         Debug.Trace("[DDNF] Escape system: Not triggering attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " (PAHE slave decided to not struggle).")
                     EndIf
+                ElseIf (npcTracker.ZadFurniturePlacerModId != 255 && DDNF_Game.GetModId(npc.GetCurrentPackage().GetFormID()) == npcTracker.ZadFurniturePlacerModId)
+                    If (npcTracker.EnablePapyrusLogging)
+                        Debug.Trace("[DDNF] Escape system: Not triggering attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " (stuck in placed Zad furniture).")
+                    EndIf
                 Else
                     If (_nextExpectedOnUpdateGameTime > 0 && (currentGameTime - _nextExpectedOnUpdateGameTime) >= 0.02083333333)
                         If (npcTracker.EnablePapyrusLogging)
@@ -1711,7 +1760,7 @@ Event OnUpdateGameTime()
                     ElseIf (npc.GetCurrentScene() != None)
                         rescheduleReason = "is in scene"
                     ElseIf (npcTracker.PamaFurnitureModId != 255 && DDNF_Game.GetModId(npc.GetCurrentPackage().GetFormID()) == npcTracker.PamaFurnitureModId)
-                        rescheduleReason = "in in Pama furniture"
+                        rescheduleReason = "is in Pama furniture"
                     EndIf
                     If (rescheduleReason != "")
                         If (npcTracker.EnablePapyrusLogging)

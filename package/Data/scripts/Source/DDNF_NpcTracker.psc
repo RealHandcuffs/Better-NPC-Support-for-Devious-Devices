@@ -53,6 +53,7 @@ Int Property PahModId Auto
 Int Property PahExtensionModId Auto
 Int Property PahDomModId Auto
 Int Property PamaFurnitureModId Auto
+Int Property ZadFurniturePlacerModId Auto
 Bool Property Po3PapyrusExtenderAvailable Auto
 Keyword Property ZbfWornGag Auto
 
@@ -136,6 +137,7 @@ Function HandleGameLoaded(Bool upgrade)
     PahExtensionModId = Game.GetModByName("paradise_halls_SLExtension.esp")
     PahDomModId = Game.GetModByName("DiaryOfMine.esp")
     PamaFurnitureModId = Game.GetModByName("PamaFurnitureScr.esp")
+    ZadFurniturePlacerModId = Game.GetModByName("ZAPFurniturePlacer.esp")
     Po3PapyrusExtenderAvailable = DDNF_Po3PapyrusExtenderShim.IsAvailable()
     If (Game.GetModByName("ZaZAnimationPack.esm"))
         ZbfWornGag = Game.GetFormFromFile(0x008A4D, "ZaZAnimationPack.esm") as Keyword
