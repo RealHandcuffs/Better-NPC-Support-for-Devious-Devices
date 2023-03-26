@@ -70,7 +70,7 @@ Event OnPageReset(string page)
     AddHeaderOption("NPC Processing", a_flags = flags)
     OptionScannerFrequency = AddSliderOption("Scan for NPCs every", MainQuest.SecondsBetweenScans, a_formatString = "{0} seconds", a_flags = flags)
     OptionMaxFixupsPerThreeSeconds = AddSliderOption("NPCs to process/3 seconds", MainQuest.NpcTracker.MaxFixupsPerThreeSeconds, a_flags = flags)
-    OptionFixInconsistentDevices = AddToggleOption("Fix current follower devices", MainQuest.NpcTracker.FixInconsistentDevices, a_flags = flags)
+    OptionFixInconsistentDevices = AddToggleOption("Fix inconsistent devices of NPCs", MainQuest.NpcTracker.FixInconsistentDevicesOfNpcs, a_flags = flags)
     OptionRestoreOriginalOutfit = AddToggleOption("Restore original outfits", MainQuest.NpcTracker.RestoreOriginalOutfit, a_flags = flags)
 
     AddHeaderOption("Container Menu Interactions")
@@ -225,9 +225,9 @@ Event OnOptionDefault(Int option)
             EndIf
         EndIf
     ElseIf (option == OptionFixInconsistentDevices)
-        If (!MainQuest.NpcTracker.FixInconsistentDevices)
-            MainQuest.NpcTracker.FixInconsistentDevices = true
-            SetToggleOptionValue(OptionFixInconsistentDevices, true)
+        If (MainQuest.NpcTracker.FixInconsistentDevicesOfNpcs)
+            MainQuest.NpcTracker.FixInconsistentDevicesOfNpcs = false
+            SetToggleOptionValue(OptionFixInconsistentDevices, false)
             Debug.Trace("[DDNF] MCM: Enabled fixing inconsistent devices.")
         EndIf
     ElseIf (option == OptionRestoreOriginalOutfit)
@@ -348,12 +348,12 @@ Event OnOptionSelect(Int option)
         SetOptionFlags(OptionOtherNpcStruggleFrequency, flagsEscapeSystem, false)
         SetOptionFlags(OptionAllowEscapeByPickingLocks, flagsEscapeSystem, false)
     ElseIf (option == OptionFixInconsistentDevices)
-        MainQuest.NpcTracker.FixInconsistentDevices = !MainQuest.NpcTracker.FixInconsistentDevices
-        SetToggleOptionValue(OptionFixInconsistentDevices, MainQuest.NpcTracker.FixInconsistentDevices)
-        If (MainQuest.NpcTracker.FixInconsistentDevices)
-            Debug.Trace("[DDNF] MCM: Enabled fixing inconsistent devices.")
+        MainQuest.NpcTracker.FixInconsistentDevicesOfNpcs = !MainQuest.NpcTracker.FixInconsistentDevicesOfNpcs
+        SetToggleOptionValue(OptionFixInconsistentDevices, MainQuest.NpcTracker.FixInconsistentDevicesOfNpcs)
+        If (MainQuest.NpcTracker.FixInconsistentDevicesOfNpcs)
+            Debug.Trace("[DDNF] MCM: Enabled fixing inconsistent devices of npcs.")
         Else
-            Debug.Trace("[DDNF] MCM: Disabled fixing inconsistent devices.")
+            Debug.Trace("[DDNF] MCM: Disabled fixing inconsistent devices of npcs.")
         EndIf
     ElseIf (option == OptionRestoreOriginalOutfit)
         MainQuest.NpcTracker.RestoreOriginalOutfit = !MainQuest.NpcTracker.RestoreOriginalOutfit

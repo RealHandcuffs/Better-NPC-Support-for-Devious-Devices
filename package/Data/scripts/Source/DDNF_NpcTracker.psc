@@ -31,7 +31,7 @@ zadLibs Property DDLibs Auto
 Bool Property IsEnabled = True Auto
 Bool Property UseBoundCombat Auto
 Bool Property EnablePapyrusLogging = False Auto
-Bool Property FixInconsistentDevices = True Auto
+Bool Property FixInconsistentDevicesOfNpcs = False Auto
 Bool Property RestoreOriginalOutfit = False Auto
 Bool Property AllowManipulationOfDevices = True Auto
 Bool Property EscapeSystemEnabled = False Auto

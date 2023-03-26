@@ -763,7 +763,7 @@ Event OnUpdate()
         _renderedDevicesFlags = -12345 ; special tag
         Armor[] newRenderedDevices = new Armor[32]
         renderedDevicesFlags = FindAndAnalyzeRenderedDevices(ddLibs, npc, newRenderedDevices, enablePapyrusLogging)
-        If (npcTracker.FixInconsistentDevices && IsCurrentFollower(npc, npcTracker) && FixInconsistentDevices(npc, newRenderedDevices, _renderedDevices, ddLibs, enablePapyrusLogging))
+        If (npcTracker.FixInconsistentDevicesOfNpcs && !HasDeviousDevicesOutfit(npc, npcTracker) && FixInconsistentDevices(npc, newRenderedDevices, _renderedDevices, ddLibs, enablePapyrusLogging))
             _renderedDevicesFlags = -1
             RegisterForFixup() ; ignore the minimum time between fixups in this case, logically it is still "the same" fixup
             _fixupLock = false
@@ -1111,16 +1111,16 @@ Function ForwardZazKeywords()
         If (npcTracker.Po3PapyrusExtenderAvailable && npcTracker.ZbfWornGag != None)
             ; put ZbfWornGag keyword on DD gag
             Int index = 0
-            Int count = Math.LogicalAnd(_renderedDevicesFlags, 255)
-            While (index < count && _renderedDevicesFlags >= 0)
-                Int deviceFlags = StorageUtil.GetIntValue(_renderedDevices[index], "ddnf_a", -1)
+            While (_renderedDevicesFlags > 0 && index < Math.LogicalAnd(_renderedDevicesFlags, 255))
+                Armor renderedDevice = _renderedDevices[index]
+                Int deviceFlags = StorageUtil.GetIntValue(renderedDevice, "ddnf_a", -1)
                 If (deviceFlags < 0)
                     zadLibs ddLibs = npcTracker.ddLibs
-                    deviceFlags = AnalyzeMaybeDevice(ddLibs, ddLibs.zad_Lockable, true, ddLibs.zad_DeviousPlug, true, _renderedDevices[index], false, npcTracker.EnablePapyrusLogging)
+                    deviceFlags = AnalyzeMaybeDevice(ddLibs, ddLibs.zad_Lockable, true, ddLibs.zad_DeviousPlug, true, renderedDevice, false, npcTracker.EnablePapyrusLogging)
                 EndIf
-                If (Math.LogicalAnd(deviceFlags, 32) == 32) ; ignore devices without known flags
+                If (Math.LogicalAnd(deviceFlags, 32) == 32) ; 32: is gag
                     DDNF_Po3PapyrusExtenderShim.AddKeywordToForm(_renderedDevices[index], npcTracker.ZbfWornGag)
-                    index = _renderedDevices.Length
+                    Return
                 Else
                     index += 1
                 EndIf
