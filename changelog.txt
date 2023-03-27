@@ -218,3 +218,4 @@ Version 0.7 beta 4
 - add very limited support for ZAP Helper Addon
 - escape system: make NPCs more responsive when receiving keys
 - allow fixing inconsistent devices of any NPC, not just followers
+- try to bring DOM slave support to similar level as PAH slaves

@@ -1732,6 +1732,10 @@ Event OnUpdateGameTime()
                     If (npcTracker.EnablePapyrusLogging)
                         Debug.Trace("[DDNF] Escape system: Not triggering attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " (PAHE slave decided to not struggle).")
                     EndIf
+                ElseIf (npcTracker.PahDomModId != 255 && !DDNF_DomShim.StruggleAgainstRestraints(npc))
+                    If (npcTracker.EnablePapyrusLogging)
+                        Debug.Trace("[DDNF] Escape system: Not triggering attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " (DOM slave decided to not struggle).")
+                    EndIf
                 ElseIf (npcTracker.ZadFurniturePlacerModId != 255 && DDNF_Game.GetModId(npc.GetCurrentPackage().GetFormID()) == npcTracker.ZadFurniturePlacerModId)
                     If (npcTracker.EnablePapyrusLogging)
                         Debug.Trace("[DDNF] Escape system: Not triggering attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " (stuck in placed Zad furniture).")
@@ -1843,6 +1847,15 @@ Int Function PerformEscapeAttempt(Bool suppressNotifications, Bool respectCooldo
     If (npcTracker.PahExtensionModId != 255 && DDNF_PaheShim.IsTied(npc))
         If (npcTracker.EnablePapyrusLogging)
             Debug.Trace("[DDNF] Aborting escape attempt for " + npcFormIdAndName + " because npc is a tied PAHE slave.")
+        EndIf
+        If (npc == (GetReference() as Actor))
+            _lastEscapeAttemptGameTime = Utility.GetCurrentGameTime()
+        EndIf
+        Return -1
+    EndIf
+    If (npcTracker.PahDomModId != 255 && DDNF_DomShim.IsTied(npc))
+        If (npcTracker.EnablePapyrusLogging)
+            Debug.Trace("[DDNF] Aborting escape attempt for " + npcFormIdAndName + " because npc is a tied DOM slave.")
         EndIf
         If (npc == (GetReference() as Actor))
             _lastEscapeAttemptGameTime = Utility.GetCurrentGameTime()
