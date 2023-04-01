@@ -586,6 +586,9 @@ EndEvent
 Event OnPackageStart(Package akNewPackage)
 EndEvent
 
+Function ForwardZazKeywords()
+EndFunction
+
 EndState
 
 
@@ -1119,7 +1122,7 @@ Function ForwardZazKeywords()
                     deviceFlags = AnalyzeMaybeDevice(ddLibs, ddLibs.zad_Lockable, true, ddLibs.zad_DeviousPlug, true, renderedDevice, false, npcTracker.EnablePapyrusLogging)
                 EndIf
                 If (Math.LogicalAnd(deviceFlags, 32) == 32) ; 32: is gag
-                    DDNF_Po3PapyrusExtenderShim.AddKeywordToForm(_renderedDevices[index], npcTracker.ZbfWornGag)
+                    DDNF_Po3PapyrusExtenderShim.AddKeywordToForm(renderedDevice, npcTracker.ZbfWornGag)
                     Return
                 Else
                     index += 1
