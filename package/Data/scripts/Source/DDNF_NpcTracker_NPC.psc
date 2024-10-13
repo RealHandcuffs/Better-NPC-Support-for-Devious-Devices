@@ -680,7 +680,7 @@ Event OnUpdate()
     If (!npcTracker.IsEnabled)
         Return ; abort, concurrent update/start/stop
     EndIf
-    If (!npc.Is3DLoaded() || npc.IsDead()) ; even if _fixupLock is true
+    If (!npc.Is3DLoaded() || npc.IsDead() || npcTracker.IgnoreNpc(npc)) ; even if _fixupLock is true
         Clear()
         Return
     EndIf
@@ -1077,7 +1077,7 @@ EndFunction
 
 Bool Function UpdateEvadeCombat(Actor npc, DDNF_NpcTracker npcTracker)
     Bool evadeCombat = _useUnarmedCombatPackage && !_isHelpless ; try to evade combat when forced to use unarmed combat
-    If (evadeCombat && IsCurrentFollower(npc, npcTracker))
+    If (evadeCombat && (IsCurrentFollower(npc, npcTracker) || npcTracker.TreatAsCurrentFollower(npc)))
         ; but do not try to evade combat when following player and player is forced to use unarmed combat, too
         If (npcTracker.Player.WornHasKeyword(npcTracker.ddLibs.zad_DeviousHeavyBondage) || npcTracker.Player.WornHasKeyword(npcTracker.ddLibs.zad_DeviousBondageMittens))
             evadeCombat = false
@@ -1109,24 +1109,29 @@ Bool Function UpdateEvadeCombat(Actor npc, DDNF_NpcTracker npcTracker)
 EndFunction
 
 Function ForwardZazKeywords()
-    If (_renderedDevicesFlags > 0 && _isGagged)
+    If (_renderedDevicesFlags > 0 && (_isGagged || _isBound))
         DDNF_NpcTracker npcTracker = GetOwningQuest() as DDNF_NpcTracker
-        If (npcTracker.Po3PapyrusExtenderAvailable && npcTracker.ZbfWornGag != None)
-            ; put ZbfWornGag keyword on DD gag
+        If (npcTracker.Po3PapyrusExtenderAvailable && npcTracker.ZbfWornGag != None && npcTracker.ZbfWornWrist != None)
+            ; put ZbfWornGag keyword on DD gag, ZbfWornWrist on DD heavy bondage
+            Bool searchGag = _isGagged
+            Bool searchHeavyBondage = _isBound
             Int index = 0
-            While (_renderedDevicesFlags > 0 && index < Math.LogicalAnd(_renderedDevicesFlags, 255))
+            While ((searchGag || searchHeavyBondage) && _renderedDevicesFlags > 0 && index < Math.LogicalAnd(_renderedDevicesFlags, 255))
                 Armor renderedDevice = _renderedDevices[index]
                 Int deviceFlags = StorageUtil.GetIntValue(renderedDevice, "ddnf_a", -1)
                 If (deviceFlags < 0)
                     zadLibs ddLibs = npcTracker.ddLibs
                     deviceFlags = AnalyzeMaybeDevice(ddLibs, ddLibs.zad_Lockable, true, ddLibs.zad_DeviousPlug, true, renderedDevice, false, npcTracker.EnablePapyrusLogging)
                 EndIf
-                If (Math.LogicalAnd(deviceFlags, 32) == 32) ; 32: is gag
+                If (searchGag && Math.LogicalAnd(deviceFlags, 32) == 32) ; 32: is gag
                     DDNF_Po3PapyrusExtenderShim.AddKeywordToForm(renderedDevice, npcTracker.ZbfWornGag)
-                    Return
-                Else
-                    index += 1
+                    searchGag = false
                 EndIf
+                If (searchHeavyBondage && Math.LogicalAnd(deviceFlags, 4) == 4) ; 4: is heavy bondage
+                    DDNF_Po3PapyrusExtenderShim.AddKeywordToForm(renderedDevice, npcTracker.ZbfWornWrist)
+                    searchHeavyBondage = false
+                EndIf
+                index += 1
             EndWhile
         EndIf
     EndIf
@@ -1682,7 +1687,7 @@ Function KickEscapeSystem(Bool highUrgencyMode)
                 Float timeSinceLastEscapeAttempt = 0
                 If (npcTracker.EscapeSystemEnabled)
                     Float struggleFrequency
-                    If (IsCurrentFollower(npc, npcTracker))
+                    If (IsCurrentFollower(npc, npcTracker) || npcTracker.TreatAsCurrentFollower(npc))
                         struggleFrequency = npcTracker.CurrentFollowerStruggleFrequency
                     Else
                         struggleFrequency = npcTracker.OtherNpcStruggleFrequency
@@ -1714,7 +1719,8 @@ Event OnUpdateGameTime()
         Bool registerForUpdate = true
         If (npcTracker.EscapeSystemEnabled && !npc.IsUnconscious() && npc.GetSleepState() <= 2)
             Int struggleFrequency
-            If (IsCurrentFollower(npc, npcTracker))
+            Bool treatAsCurrentFollower = npcTracker.TreatAsCurrentFollower(npc)
+            If (IsCurrentFollower(npc, npcTracker) || treatAsCurrentFollower)
                 struggleFrequency = npcTracker.CurrentFollowerStruggleFrequency
             Else
                 struggleFrequency = npcTracker.OtherNpcStruggleFrequency
@@ -1731,11 +1737,11 @@ Event OnUpdateGameTime()
                     If (npcTracker.EnablePapyrusLogging)
                         Debug.Trace("[DDNF] Escape system: Not triggering attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " (_nextEscapeAttemptMinGameTime=" + _nextEscapeAttemptMinGameTime + " [" + ((_nextEscapeAttemptMinGameTime - currentGameTime) * 24) + "h]).")
                     EndIf
-                ElseIf (npcTracker.PahExtensionModId != 255 && !DDNF_PaheShim.StartMovingByFormula(npc))
+                ElseIf (!treatAsCurrentFollower && npcTracker.PahExtensionModId != 255 && !DDNF_PaheShim.StartMovingByFormula(npc))
                     If (npcTracker.EnablePapyrusLogging)
                         Debug.Trace("[DDNF] Escape system: Not triggering attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " (PAHE slave decided to not struggle).")
                     EndIf
-                ElseIf (npcTracker.PahDomModId != 255 && !DDNF_DomShim.StruggleAgainstRestraints(npc))
+                ElseIf (!treatAsCurrentFollower && npcTracker.PahDomModId != 255 && !DDNF_DomShim.StruggleAgainstRestraints(npc))
                     If (npcTracker.EnablePapyrusLogging)
                         Debug.Trace("[DDNF] Escape system: Not triggering attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " (DOM slave decided to not struggle).")
                     EndIf
@@ -1817,6 +1823,7 @@ Int Function PerformEscapeAttempt(Bool suppressNotifications, Bool respectCooldo
         npcFormIdAndName = DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName()
     EndIf
     Bool isCurrentFollower = IsCurrentFollower(npc, npcTracker)
+    Bool treatAsCurrentFollower = npcTracker.TreatAsCurrentFollower(npc)
     If (!isCurrentFollower)
         Int modId = DDNF_Game.GetModId(npc.GetFormID())
         If (modId == npcTracker.DeviouslyCursedLootModId && DDNF_DcurShim.IsStruggleBlocklistedCharacter(npc))
@@ -1890,8 +1897,8 @@ Int Function PerformEscapeAttempt(Bool suppressNotifications, Bool respectCooldo
     If (npcTracker.EnablePapyrusLogging)
         Debug.Trace("[DDNF] Performing escape attempt for " + npcFormIdAndName + ".")
     EndIf
-    Bool displayNotifications = !suppressNotifications && npcTracker.EscapeSystemEnabled && npcTracker.NotifyPlayerOfCurrentFollowerStruggle && isCurrentFollower
-    Bool allowPickingLocks = npcTracker.AllowEscapeByPickingLocks >= 2 || npcTracker.AllowEscapeByPickingLocks == 1 && isCurrentFollower
+    Bool displayNotifications = !suppressNotifications && npcTracker.EscapeSystemEnabled && npcTracker.NotifyPlayerOfCurrentFollowerStruggle && (isCurrentFollower || treatAsCurrentFollower)
+    Bool allowPickingLocks = npcTracker.AllowEscapeByPickingLocks >= 2 || npcTracker.AllowEscapeByPickingLocks == 1 && (isCurrentFollower || treatAsCurrentFollower)
     Armor[] failedDevices = new Armor[32]
     Int failedDeviceCount = 0
     Int noChanceDeviceCount = 0

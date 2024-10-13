@@ -11,6 +11,7 @@ Faction Property CurrentFollowerFaction Auto
 Faction Property DeviceTargets Auto
 Faction Property EvadeCombat Auto
 Faction Property Helpless Auto
+Faction Property NpcFlags Auto
 Faction Property Struggling Auto
 Faction Property UnarmedCombatants Auto
 FormList Property MassiveRacesList Auto
@@ -56,6 +57,7 @@ Int Property PamaFurnitureModId Auto
 Int Property ZadFurniturePlacerModId Auto
 Bool Property Po3PapyrusExtenderAvailable Auto
 Keyword Property ZbfWornGag Auto
+Keyword Property ZbfWornWrist Auto
 
 Alias[] _cachedAliases ; performance optimization
 Form[] _cachedNpcs ; performance optimization
@@ -141,6 +143,7 @@ Function HandleGameLoaded(Bool upgrade)
     Po3PapyrusExtenderAvailable = DDNF_Po3PapyrusExtenderShim.IsAvailable()
     If (Game.GetModByName("ZaZAnimationPack.esm"))
         ZbfWornGag = Game.GetFormFromFile(0x008A4D, "ZaZAnimationPack.esm") as Keyword
+        ZbfWornWrist = Game.GetFormFromFile(0x008FB9, "ZaZAnimationPack.esm") as Keyword
     EndIf
     ; notify all alias scripts
     Int index = 0
@@ -509,6 +512,83 @@ Bool Function UnlockDevice(Actor npc, Armor inventoryDevice, Armor renderedDevic
         Return true
     EndIf
     Return DDLibs.UnlockDevice(npc, inventoryDevice, renderedDevice, deviceKeyword, false, true)
+EndFunction
+
+
+;
+; Get one or multiple bits of a faction rank, supported bitmap need to be in the range [1, 127].
+;
+Int Function GetFactionBits(Actor npc, Faction bitmapFaction, Int bitmap) Global
+    Int factionRank = npc.GetFactionRank(bitmapFaction)
+    If (factionRank > 0)
+        Return Math.LogicalAnd(factionRank, bitmap)
+    EndIf
+    Return 0
+EndFunction
+
+
+;
+; Update one or multiple bits of a faction rank, supported bitmap need to be in the range [1, 127], value needs to be subset of bitmap.
+;
+Function UpdateFactionBits(Actor npc, Faction bitmapFaction, Int bitmap, Int value) Global
+    Int factionRank = npc.GetFactionRank(bitmapFaction)
+    If (factionRank > 0)
+        Int newFactionRank = Math.LogicalOr(Math.LogicalAnd(factionRank, Math.LogicalNot(bitmap)), value)
+        If (newFactionRank == 0)
+            npc.RemoveFromFaction(bitmapFaction)
+        ElseIf (newFactionRank != factionRank)
+            npc.SetFactionRank(bitmapFaction, newFactionRank)
+        EndIf
+    ElseIf (value > 0)
+        npc.SetFactionRank(bitmapFaction, value)
+    EndIf
+EndFunction
+
+
+;
+; Check whether the NPC should be ignored by the mod.
+;
+Bool Function IgnoreNpc(Actor npc)
+    Return GetFactionBits(npc, NpcFlags, 0x40) == 0x40
+EndFunction
+
+
+;
+; Update whether the NPC should be ignored by the mod.
+;
+Function UpdateIgnoreNpc(Actor npc, Bool value)
+    If (value)
+        UpdateFactionBits(npc, NpcFlags, 0x40, 0x40)
+        Form[] npcs = GetNpcs()
+        Int index = npcs.Find(npc)
+        If (index >= 0)
+            Alias[] aliases = GetAliases()
+            ReferenceAlias refAlias = aliases[index] as ReferenceAlias
+            (refAlias as DDNF_NpcTracker_NPC).RegisterForFixup() ; will remove NPC from alias on update
+        EndIf
+    Else
+        UpdateFactionBits(npc, NpcFlags, 0x40, 0x00)
+    EndIf
+EndFunction
+
+
+;
+; Check whether the NPC should always be treated as "current follower".
+;
+Bool Function TreatAsCurrentFollower(Actor npc)
+    Return GetFactionBits(npc, NpcFlags, 0x01) == 0x01
+EndFunction
+
+
+;
+; Update whether the NPC should always be treated as "current follower".
+;
+Function UpdateTreatAsCurrentFollower(Actor npc, Bool value)
+    If (value)
+        UpdateFactionBits(npc, NpcFlags, 0x01, 0x01)
+    Else
+        UpdateFactionBits(npc, NpcFlags, 0x01, 0x00)
+    EndIf
 EndFunction
 
 

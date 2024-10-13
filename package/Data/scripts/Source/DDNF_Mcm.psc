@@ -22,6 +22,9 @@ Int Property OptionAllowEscapeByPickingLocks Auto
 Int Property OptionNpcProcessingEnabled Auto
 Int Property OptionClearCachedDataOnMenuClose Auto
 
+Int Property OptionIgnoreNpc Auto
+Int Property OptionAlwaysTreatAsCurrentFollower Auto
+
 Int Property OptionEnablePapyrusLogging Auto
 Int Property OptionShowNpcInfo Auto
 Int Property OptionCursorActor Auto
@@ -67,7 +70,7 @@ Event OnPageReset(string page)
         flags = OPTION_FLAG_DISABLED
     EndIf
 
-    AddHeaderOption("NPC Processing", a_flags = flags)
+    AddHeaderOption("NPC Processing")
     OptionScannerFrequency = AddSliderOption("Scan for NPCs every", MainQuest.SecondsBetweenScans, a_formatString = "{0} seconds", a_flags = flags)
     OptionMaxFixupsPerThreeSeconds = AddSliderOption("NPCs to process/3 seconds", MainQuest.NpcTracker.MaxFixupsPerThreeSeconds, a_flags = flags)
     OptionFixInconsistentDevices = AddToggleOption("Fix inconsistent devices of NPCs", MainQuest.NpcTracker.FixInconsistentDevicesOfNpcs, a_flags = flags)
@@ -82,7 +85,7 @@ Event OnPageReset(string page)
 
     SetCursorPosition(1)
 
-    AddHeaderOption("Escape System", a_flags = flags)
+    AddHeaderOption("Escape System")
     OptionEnableEscapeSystem = AddToggleOption("Allow NPCs to struggle", MainQuest.NpcTracker.EscapeSystemEnabled, a_flags = flags)
     Int flagsEscapeSystem = flags
     If (!MainQuest.NpcTracker.EscapeSystemEnabled)
@@ -95,9 +98,20 @@ Event OnPageReset(string page)
     OptionNotifyPlayerOfCurrentFollowerStruggle = AddMenuOption("Followers: Notifications", ToNotificationString(MainQuest.NpcTracker.NotifyPlayerOfCurrentFollowerStruggle, MainQuest.NpcTracker.OnlyDisplayFinalSummaryMessage), a_flags = flagsEscapeSystem)
     OptionOtherNpcStruggleFrequency = AddMenuOption("Other NPCs: Frequency", ToStruggleFrequencyString(MainQuest.NpcTracker.OtherNpcStruggleFrequency), a_flags = flagsEscapeSystem)
 
+    Actor cursorActor = Game.GetCurrentCrosshairRef() as Actor
+    If (cursorActor != None)
+        AddHeaderOption("Custom Settings for: " + cursorActor.GetDisplayName())
+        Bool ignoreNpc = MainQuest.NpcTracker.IgnoreNpc(cursorActor)
+        OptionIgnoreNpc = AddToggleOption("Ignore NPC", ignoreNpc, a_flags = flags)
+        Int flagsCustomSettings = flags
+        If (ignoreNpc)
+            flagsCustomSettings = OPTION_FLAG_DISABLED
+        EndIf
+        OptionAlwaysTreatAsCurrentFollower = AddToggleOption("Always Treat as Current Follower", MainQuest.NpcTracker.TreatAsCurrentFollower(cursorActor), a_flags = flagsCustomSettings)
+    EndIf
+
     AddHeaderOption("Debug Settings")
     OptionEnablePapyrusLogging = AddToggleOption("Enable payprus logging", MainQuest.NpcTracker.EnablePapyrusLogging)
-    Actor cursorActor = Game.GetCurrentCrosshairRef() as Actor
     If (cursorActor != None)
         ShowNpcInfo = false
         OptionShowNpcInfo = AddToggleOption("Analyze NPC under crosshair", false)
@@ -191,7 +205,7 @@ Event OnOptionDefault(Int option)
         If (!MainQuest.NpcTracker.IsRunning())
             RegisterForSingleUpdate(0.016)
             SetToggleOptionValue(OptionNpcProcessingEnabled, true)
-            SetOptionFlags(OptionScannerFrequency, OPTION_FLAG_NONE, true)
+            SetOptionFlags(OptionScannerFrequency, OPTION_FLAG_NONE, false)
             SetOptionFlags(OptionMaxFixupsPerThreeSeconds, OPTION_FLAG_NONE, false)
             SetOptionFlags(OptionFixInconsistentDevices, OPTION_FLAG_NONE, false)
             SetOptionFlags(OptionRestoreOriginalOutfit, OPTION_FLAG_NONE, false)
@@ -207,6 +221,15 @@ Event OnOptionDefault(Int option)
             SetOptionFlags(OptionNotifyPlayerOfCurrentFollowerStruggle, flagsEscapeSystem, false)
             SetOptionFlags(OptionOtherNpcStruggleFrequency, flagsEscapeSystem, false)
             SetOptionFlags(OptionAllowEscapeByPickingLocks, flagsEscapeSystem, false)
+            Actor cursorActor = Game.GetCurrentCrosshairRef() as Actor
+            If (cursorActor != None)
+                SetOptionFlags(OptionIgnoreNpc, OPTION_FLAG_NONE, false)
+                Int flagsCustomSettings = OPTION_FLAG_NONE
+                If (MainQuest.NpcTracker.IgnoreNpc(cursorActor))
+                    flagsCustomSettings = OPTION_FLAG_DISABLED
+                EndIf
+                SetOptionFlags(OptionAlwaysTreatAsCurrentFollower, flagsCustomSettings, false)
+            EndIf
         EndIf
     ElseIf (option == OptionScannerFrequency)
         If (MainQuest.SecondsBetweenScans != 8)
@@ -228,19 +251,25 @@ Event OnOptionDefault(Int option)
         If (MainQuest.NpcTracker.FixInconsistentDevicesOfNpcs)
             MainQuest.NpcTracker.FixInconsistentDevicesOfNpcs = false
             SetToggleOptionValue(OptionFixInconsistentDevices, false)
-            Debug.Trace("[DDNF] MCM: Enabled fixing inconsistent devices.")
+            If (MainQuest.NpcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] MCM: Enabled fixing inconsistent devices.")
+            EndIf
         EndIf
     ElseIf (option == OptionRestoreOriginalOutfit)
         If (MainQuest.NpcTracker.RestoreOriginalOutfit)
             MainQuest.NpcTracker.RestoreOriginalOutfit = false
             SetToggleOptionValue(OptionRestoreOriginalOutfit, false)
-            Debug.Trace("[DDNF] MCM: Disabled restoring original outfits.")
+            If (MainQuest.NpcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] MCM: Disabled restoring original outfits.")
+            EndIf
         EndIf
     ElseIf (option == OptionAllowManipulationOfDevices)
         If (!MainQuest.NpcTracker.AllowManipulationOfDevices)
             MainQuest.NpcTracker.AllowManipulationOfDevices = true
             SetToggleOptionValue(OptionAllowManipulationOfDevices, true)
-            Debug.Trace("[DDNF] MCM: Enabled manipulation of devices.")
+            If (MainQuest.NpcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] MCM: Enabled manipulation of devices.")
+            EndIf
         EndIf
     ElseIf (option == OptionEnableEscapeSystem)
         If (MainQuest.NpcTracker.EscapeSystemEnabled)
@@ -252,25 +281,33 @@ Event OnOptionDefault(Int option)
             SetOptionFlags(OptionNotifyPlayerOfCurrentFollowerStruggle, OPTION_FLAG_DISABLED, false)
             SetOptionFlags(OptionOtherNpcStruggleFrequency, OPTION_FLAG_DISABLED, false)
             SetOptionFlags(OptionAllowEscapeByPickingLocks, OPTION_FLAG_DISABLED, false)
-            Debug.Trace("[DDNF] MCM: Disabled escape system.")
+            If (MainQuest.NpcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] MCM: Disabled escape system.")
+            EndIf
         EndIf
     ElseIf (option == OptionAbortStrugglingAfterFailedDevices)
         If (MainQuest.NpcTracker.AbortStrugglingAfterFailedDevices != 3)
             MainQuest.NpcTracker.AbortStrugglingAfterFailedDevices = 3
             SetMenuOptionValue(OptionStruggleIfPointless, ToAbortStrugglingString(3, true))
-            Debug.Trace("[DDNF] MCM: Set abort struggling to 'abort after 3 failed devices'.")
+            If (MainQuest.NpcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] MCM: Set abort struggling to 'abort after 3 failed devices'.")
+            EndIf
         EndIf
     ElseIf (option == OptionStruggleIfPointless)
         If (MainQuest.NpcTracker.StruggleIfPointless)
             MainQuest.NpcTracker.StruggleIfPointless = false
             SetToggleOptionValue(OptionStruggleIfPointless, false)
-            Debug.Trace("[DDNF] MCM: Disable struggling if pointless.")
+            If (MainQuest.NpcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] MCM: Disable struggling if pointless.")
+            EndIf
         EndIf
     ElseIf (option == OptionCurrentFollowerStruggleFrequency)
         If (MainQuest.NpcTracker.CurrentFollowerStruggleFrequency != -1)
             MainQuest.NpcTracker.CurrentFollowerStruggleFrequency = -1
             SetMenuOptionValue(OptionCurrentFollowerStruggleFrequency, ToStruggleFrequencyString(-1))
-            Debug.Trace("[DDNF] MCM: Set current follower struggle frequency to -1.")
+            If (MainQuest.NpcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] MCM: Set current follower struggle frequency to -1.")
+            EndIf
         EndIf
     ElseIf (option == OptionNotifyPlayerOfCurrentFollowerStruggle)
         If (!MainQuest.NpcTracker.NotifyPlayerOfCurrentFollowerStruggle || MainQuest.NpcTracker.OnlyDisplayFinalSummaryMessage)
@@ -278,19 +315,44 @@ Event OnOptionDefault(Int option)
             MainQuest.NpcTracker.OnlyDisplayFinalSummaryMessage = true
             String notificationString = ToNotificationString(true, false)
             SetMenuOptionValue(OptionNotifyPlayerOfCurrentFollowerStruggle, notificationString)
-            Debug.Trace("[DDNF] MCM: Set notifications for current follower struggling to " + notificationString + ".")
+            If (MainQuest.NpcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] MCM: Set notifications for current follower struggling to " + notificationString + ".")
+            EndIf
         EndIf
     ElseIf (option == OptionOtherNpcStruggleFrequency)
         If (MainQuest.NpcTracker.OtherNpcStruggleFrequency != 0)
             MainQuest.NpcTracker.OtherNpcStruggleFrequency = 0
             SetMenuOptionValue(OptionOtherNpcStruggleFrequency, ToStruggleFrequencyString(0))
-            Debug.Trace("[DDNF] MCM: Set other npc struggle frequency to 0.")
+            If (MainQuest.NpcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] MCM: Set other npc struggle frequency to 0.")
+            EndIf
         EndIf
     ElseIf (option == OptionAllowEscapeByPickingLocks)
         If (MainQuest.NpcTracker.AllowEscapeByPickingLocks != 1)
             MainQuest.NpcTracker.AllowEscapeByPickingLocks = 1
             SetMenuOptionValue(OptionAllowEscapeByPickingLocks, ToEscapeByLockpickingString(1))
-            Debug.Trace("[DDNF] MCM: Set allow escape by lockpicking to 1.")
+            If (MainQuest.NpcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] MCM: Set allow escape by lockpicking to 1.")
+            EndIf
+        EndIf
+    ElseIf (option == OptionIgnoreNpc)
+        Actor cursorActor = Game.GetCurrentCrosshairRef() as Actor
+        If (cursorActor != None && MainQuest.NpcTracker.IgnoreNpc(cursorActor))
+            MainQuest.NpcTracker.UpdateIgnoreNpc(cursorActor, false)
+            SetToggleOptionValue(OptionIgnoreNpc, false)
+            SetOptionFlags(OptionAlwaysTreatAsCurrentFollower, OPTION_FLAG_NONE, false)
+            If (MainQuest.NpcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] MCM: Disable ignoring " + DDNF_Game.FormIdAsString(cursorActor) + " " + cursorActor.GetDisplayName() + ".")
+            EndIf
+        EndIf
+    ElseIf (option == OptionAlwaysTreatAsCurrentFollower)
+        Actor cursorActor = Game.GetCurrentCrosshairRef() as Actor
+        If (cursorActor != None && MainQuest.NpcTracker.TreatAsCurrentFollower(cursorActor))
+            MainQuest.NpcTracker.UpdateTreatAsCurrentFollower(cursorActor, false)
+            SetToggleOptionValue(OptionAlwaysTreatAsCurrentFollower, false)
+            If (MainQuest.NpcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] MCM: Disable always treating " + DDNF_Game.FormIdAsString(cursorActor) + " " + cursorActor.GetDisplayName() + " as current follower.")
+            EndIf
         EndIf
     ElseIf (option == OptionEnablePapyrusLogging)
         If (MainQuest.NpcTracker.EnablePapyrusLogging)
@@ -350,26 +412,32 @@ Event OnOptionSelect(Int option)
     ElseIf (option == OptionFixInconsistentDevices)
         MainQuest.NpcTracker.FixInconsistentDevicesOfNpcs = !MainQuest.NpcTracker.FixInconsistentDevicesOfNpcs
         SetToggleOptionValue(OptionFixInconsistentDevices, MainQuest.NpcTracker.FixInconsistentDevicesOfNpcs)
-        If (MainQuest.NpcTracker.FixInconsistentDevicesOfNpcs)
-            Debug.Trace("[DDNF] MCM: Enabled fixing inconsistent devices of npcs.")
-        Else
-            Debug.Trace("[DDNF] MCM: Disabled fixing inconsistent devices of npcs.")
+        If (MainQuest.NpcTracker.EnablePapyrusLogging)
+            If (MainQuest.NpcTracker.FixInconsistentDevicesOfNpcs)
+                Debug.Trace("[DDNF] MCM: Enabled fixing inconsistent devices of npcs.")
+            Else
+                Debug.Trace("[DDNF] MCM: Disabled fixing inconsistent devices of npcs.")
+            EndIf
         EndIf
     ElseIf (option == OptionRestoreOriginalOutfit)
         MainQuest.NpcTracker.RestoreOriginalOutfit = !MainQuest.NpcTracker.RestoreOriginalOutfit
         SetToggleOptionValue(OptionRestoreOriginalOutfit, MainQuest.NpcTracker.RestoreOriginalOutfit)
-        If (MainQuest.NpcTracker.RestoreOriginalOutfit)
-            Debug.Trace("[DDNF] MCM: Enabled restoring original outfits.")
-        Else
-            Debug.Trace("[DDNF] MCM: Disabled restoring original outfits.")
+        If (MainQuest.NpcTracker.EnablePapyrusLogging)
+            If (MainQuest.NpcTracker.RestoreOriginalOutfit)
+                Debug.Trace("[DDNF] MCM: Enabled restoring original outfits.")
+            Else
+                Debug.Trace("[DDNF] MCM: Disabled restoring original outfits.")
+            EndIf
         EndIf
     ElseIf (option == OptionAllowManipulationOfDevices)
         MainQuest.NpcTracker.AllowManipulationOfDevices = !MainQuest.NpcTracker.AllowManipulationOfDevices
         SetToggleOptionValue(OptionAllowManipulationOfDevices, MainQuest.NpcTracker.AllowManipulationOfDevices)
-        If (MainQuest.NpcTracker.AllowManipulationOfDevices)
-            Debug.Trace("[DDNF] MCM: Enabled manipulation of devices.")
-        Else
-            Debug.Trace("[DDNF] MCM: Disabled manipulation of devices.")
+        If (MainQuest.NpcTracker.EnablePapyrusLogging)
+            If (MainQuest.NpcTracker.AllowManipulationOfDevices)
+                Debug.Trace("[DDNF] MCM: Enabled manipulation of devices.")
+            Else
+                Debug.Trace("[DDNF] MCM: Disabled manipulation of devices.")
+            EndIf
         EndIf
     ElseIf (option == OptionEnableEscapeSystem)
         MainQuest.NpcTracker.EscapeSystemEnabled = !MainQuest.NpcTracker.EscapeSystemEnabled
@@ -384,18 +452,54 @@ Event OnOptionSelect(Int option)
         SetOptionFlags(OptionNotifyPlayerOfCurrentFollowerStruggle, flagsEscapeSystem, false)
         SetOptionFlags(OptionOtherNpcStruggleFrequency, flagsEscapeSystem, false)
         SetOptionFlags(OptionAllowEscapeByPickingLocks, flagsEscapeSystem, false)
-        If (MainQuest.NpcTracker.EscapeSystemEnabled)
-            Debug.Trace("[DDNF] MCM: Enabled escape system.")
-        Else
-            Debug.Trace("[DDNF] MCM: Disabled escape system.")
+        If (MainQuest.NpcTracker.EnablePapyrusLogging)
+            If (MainQuest.NpcTracker.EscapeSystemEnabled)
+                Debug.Trace("[DDNF] MCM: Enabled escape system.")
+            Else
+                Debug.Trace("[DDNF] MCM: Disabled escape system.")
+            EndIf
         EndIf
     ElseIf (option == OptionStruggleIfPointless)
         MainQuest.NpcTracker.StruggleIfPointless = !MainQuest.NpcTracker.StruggleIfPointless
         SetToggleOptionValue(OptionStruggleIfPointless, MainQuest.NpcTracker.StruggleIfPointless)
-        If (MainQuest.NpcTracker.StruggleIfPointless)
-            Debug.Trace("[DDNF] MCM: Enabled struggling if pointless.")
-        Else
-            Debug.Trace("[DDNF] MCM: Disabled struggling if pointless.")
+        If (MainQuest.NpcTracker.EnablePapyrusLogging)
+            If (MainQuest.NpcTracker.StruggleIfPointless)
+                Debug.Trace("[DDNF] MCM: Enabled struggling if pointless.")
+            Else
+                Debug.Trace("[DDNF] MCM: Disabled struggling if pointless.")
+            EndIf
+        EndIf
+    ElseIf (option == OptionIgnoreNpc)
+        Actor cursorActor = Game.GetCurrentCrosshairRef() as Actor
+        If (cursorActor != None && MainQuest.NpcTracker.IgnoreNpc(cursorActor))
+            MainQuest.NpcTracker.UpdateIgnoreNpc(cursorActor, false)
+            SetToggleOptionValue(OptionIgnoreNpc, false)
+            SetOptionFlags(OptionAlwaysTreatAsCurrentFollower, OPTION_FLAG_NONE, false)
+            If (MainQuest.NpcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] MCM: Disabledignoring " + DDNF_Game.FormIdAsString(cursorActor) + " " + cursorActor.GetDisplayName() + ".")
+            EndIf
+        ElseIf (cursorActor != None)
+            MainQuest.NpcTracker.UpdateIgnoreNpc(cursorActor, true)
+            SetToggleOptionValue(OptionIgnoreNpc, true)
+            SetOptionFlags(OptionAlwaysTreatAsCurrentFollower, OPTION_FLAG_DISABLED, false)
+            If (MainQuest.NpcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] MCM: Enable ignoring " + DDNF_Game.FormIdAsString(cursorActor) + " " + cursorActor.GetDisplayName() + ".")
+            EndIf
+        EndIf
+    ElseIf (option == OptionAlwaysTreatAsCurrentFollower)
+        Actor cursorActor = Game.GetCurrentCrosshairRef() as Actor
+        If (cursorActor != None && MainQuest.NpcTracker.TreatAsCurrentFollower(cursorActor))
+            MainQuest.NpcTracker.UpdateTreatAsCurrentFollower(cursorActor, false)
+            SetToggleOptionValue(OptionAlwaysTreatAsCurrentFollower, false)
+            If (MainQuest.NpcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] MCM: Disable always treating " + DDNF_Game.FormIdAsString(cursorActor) + " " + cursorActor.GetDisplayName() + " as current follower.")
+            EndIf
+        ElseIf (cursorActor != None)
+            MainQuest.NpcTracker.UpdateTreatAsCurrentFollower(cursorActor, true)
+            SetToggleOptionValue(OptionAlwaysTreatAsCurrentFollower, true)
+            If (MainQuest.NpcTracker.EnablePapyrusLogging)
+                Debug.Trace("[DDNF] MCM: Enable always treating " + DDNF_Game.FormIdAsString(cursorActor) + " " + cursorActor.GetDisplayName() + " as current follower.")
+            EndIf
         EndIf
     ElseIf (option == OptionEnablePapyrusLogging)
         MainQuest.NpcTracker.EnablePapyrusLogging = !MainQuest.NpcTracker.EnablePapyrusLogging

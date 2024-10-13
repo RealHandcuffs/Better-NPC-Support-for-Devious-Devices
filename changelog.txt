@@ -219,3 +219,7 @@ Version 0.7 beta 4
 - escape system: make NPCs more responsive when receiving keys
 - allow fixing inconsistent devices of any NPC, not just followers
 - try to bring DOM slave support to similar level as PAH slaves
+
+Version 0.7 beta 5
+- forward zazWornWrist keyword to DD bondage if Powerofthree's Papyrus Extender is installed
+- allow configuring simple options for individual NPCs in MCM: ignore, always treat as follower
