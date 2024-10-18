@@ -55,6 +55,7 @@ Int Property PahExtensionModId Auto
 Int Property PahDomModId Auto
 Int Property PamaFurnitureModId Auto
 Int Property ZadFurniturePlacerModId Auto
+Bool Property IsDeviousDevicesNG Auto
 Bool Property Po3PapyrusExtenderAvailable Auto
 Keyword Property ZbfWornGag Auto
 Keyword Property ZbfWornWrist Auto
@@ -140,6 +141,8 @@ Function HandleGameLoaded(Bool upgrade)
     PahDomModId = Game.GetModByName("DiaryOfMine.esp")
     PamaFurnitureModId = Game.GetModByName("PamaFurnitureScr.esp")
     ZadFurniturePlacerModId = Game.GetModByName("ZAPFurniturePlacer.esp")
+    Quest zadNGQuest = Game.GetFormFromFile(0xA0000D, "Devious Devices - Expansion.esm") as Quest
+    IsDeviousDevicesNG = zadNGQuest != None && zadNGQuest.GetID() == "zadNGQuest"
     Po3PapyrusExtenderAvailable = DDNF_Po3PapyrusExtenderShim.IsAvailable()
     If (Game.GetModByName("ZaZAnimationPack.esm"))
         ZbfWornGag = Game.GetFormFromFile(0x008A4D, "ZaZAnimationPack.esm") as Keyword

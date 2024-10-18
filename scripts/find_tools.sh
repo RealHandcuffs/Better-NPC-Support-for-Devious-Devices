@@ -94,7 +94,7 @@ then
         [[ $GENERATE == 0 ]] && echo "  Resolved to: $DIR_SKYRIM"
       fi
     else
-      REGISTRY=$(reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Steam App 72850") || { >&2 echo "ERROR: Unable to find Fallout 4 registry key."; exit 2; }
+      REGISTRY=$(reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Steam App 72850") || { >&2 echo "ERROR: Unable to find Skyrim registry key."; exit 2; }
       PATH_SKYRIM=$(echo "$REGISTRY" | sed -rn "s/\s*InstallLocation\s+REG_SZ\s+(.*)/\1/p")
       PATH_SKYRIM=$(cygpath -u "$PATH_SKYRIM")
       if [[ -f "$PATH_SKYRIM/TESV.exe" ]]
@@ -122,7 +122,7 @@ then
         [[ $GENERATE == 0 ]] && echo "  Resolved to: $DIR_SKYRIM_CREATION_KIT"
       fi
     else
-      REGISTRY=$(reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Steam App 202480") || { >&2 echo "ERROR: Unable to find Skyrim registry key."; exit 2; }
+      REGISTRY=$(reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Steam App 202480") || { >&2 echo "ERROR: Unable to find Skyrim creation kit registry key."; exit 2; }
       PATH_SKYRIM_CREATION_KIT=$(echo "$REGISTRY" | sed -rn "s/\s*InstallLocation\s+REG_SZ\s+(.*)/\1/p")
       PATH_SKYRIM_CREATION_KIT=$(cygpath -u "$PATH_SKYRIM_CREATION_KIT")
       if [[ -f "$PATH_SKYRIM_CREATION_KIT/CreationKit.exe" ]]

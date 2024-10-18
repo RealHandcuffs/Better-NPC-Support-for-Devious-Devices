@@ -246,7 +246,7 @@ Function HandleItemAddedRemoved(Form akBaseItem, ObjectReference akSourceDestCon
         Armor maybeArmor = akBaseItem as Armor
         Float delayOverride = -1
         If (maybeArmor != None)
-            If (npcTracker.RestoreOriginalOutfit)
+            If (npcTracker.RestoreOriginalOutfit && !npcTracker.IsDeviousDevicesNG)
                 Bool outfitRestored = False
                 If (npcTracker.TryGetCurrentContraption(npc) != None)
                     outfitRestored = DDNF_ZadcShim.TryRestoreOutfit(npc)
@@ -705,7 +705,7 @@ Event OnUpdate()
         RegisterForFixup(8.0)
         Return
     EndIf
-    If (npcTracker.RestoreOriginalOutfit)
+    If (npcTracker.RestoreOriginalOutfit && !npcTracker.IsDeviousDevicesNG)
         Bool outfitRestored = False
         If (npcTracker.TryGetCurrentContraption(npc) != None)
             outfitRestored = DDNF_ZadcShim.TryRestoreOutfit(npc)
@@ -923,7 +923,10 @@ Event OnUpdate()
     If (!isInBondageDevice && (hasAnimation || _hasAnimation || _isInBondageDevice))
         zadBoundCombatScript boundCombat = ddLibs.BoundCombat
         Bool animationIsApplied = false
-        If (_isInBondageDevice)
+        If (npcTracker.IsDeviousDevicesNG)
+            ; DD NG correctly applies animations, we don't need to fix them up
+            animationIsApplied = hasAnimation
+        ElseIf (_isInBondageDevice)
             animationIsApplied = !hasAnimation ; force re-evaluating animation when exiting contraption
         ElseIf (!scanForDevices || !hasAnimation)
             ; use _mtidle animation to check if animations are applied
@@ -934,7 +937,7 @@ Event OnUpdate()
             EndIf
         EndIf
         Bool restoreWeaponAccess = false
-        If (hasAnimation && animationIsApplied)
+        If (hasAnimation && animationIsApplied && !npcTracker.IsDeviousDevicesNG)
             ; un/reequipping devices can break the current idle and replace it with the default idle, restart the bound idle
             If (!npc.IsInFaction(ddLibs.zadAnimatingFaction) && !npc.IsUnconscious() && npc.GetSleepState() <= 2)
                 Debug.SendAnimationEvent(npc, "IdleForceDefaultState")
