@@ -3,18 +3,33 @@
 ;
 Scriptname DDNF_DomShim
 
-Bool Function IsDomSlave(Actor npc) Global
-    Faction DOMPlayerSlaveFaction = Game.GetFormFromFile(0x56C505, "DiaryOfMine.esp") as Faction
+Bool Function IsDomSlave(Actor npc, Bool domIsEsm) Global
+    Faction DOMPlayerSlaveFaction
+    If (domIsEsm)
+        DOMPlayerSlaveFaction = Game.GetFormFromFile(0x56C505, "DiaryOfMine.esm") as Faction
+    Else
+        DOMPlayerSlaveFaction = Game.GetFormFromFile(0x56C505, "DiaryOfMine.esp") as Faction
+    EndIf
     Return npc.IsInFaction(DOMPlayerSlaveFaction)
 EndFunction
 
-Bool Function IsTied(Actor slave) Global
-    Faction DOMActionTied = Game.GetFormFromFile(0x58AB49, "DiaryOfMine.esp") as Faction
+Bool Function IsTied(Actor slave, Bool domIsEsm) Global
+    Faction DOMActionTied
+    If (domIsEsm)
+        DOMActionTied = Game.GetFormFromFile(0x58AB49, "DiaryOfMine.esm") as Faction
+    Else
+        DOMActionTied = Game.GetFormFromFile(0x58AB49, "DiaryOfMine.esp") as Faction
+    EndIf
     Return slave.IsInFaction(DOMActionTied)
 EndFunction
 
-Bool Function StruggleAgainstRestraints(Actor slave) Global
-    DOM_Core pCore = Game.GetFormFromFile(0x000D61, "DiaryOfMine.esp") as DOM_Core
+Bool Function StruggleAgainstRestraints(Actor slave, Bool domIsEsm) Global
+    DOM_Core pCore
+    If (domIsEsm)
+        pCore = Game.GetFormFromFile(0x000D61, "DiaryOfMine.esm") as DOM_Core
+    Else
+        pCore = Game.GetFormFromFile(0x000D61, "DiaryOfMine.esp") as DOM_Core
+    EndIf
     DOM_Actor pActor = pCore.GetActor(slave)
     If (pActor != None)
         If (!pActor.IsBreakingWait())

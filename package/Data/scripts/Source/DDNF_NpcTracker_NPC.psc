@@ -1358,7 +1358,7 @@ Bool Function FixInconsistentDevices(Actor npc, Armor[] newRenderedDevices, Armo
                 isQuestDevice = inventoryDevice.HasKeyword(ddLibs.zad_QuestItem) || inventoryDevice.HasKeyword(ddLibs.zad_BlockGeneric)
             EndIf
             If (!isQuestDevice)
-                npc.UnequipItem(renderedDevice, abPreventEquip=true, abSilent=true)
+                npc.UnequipItemEx(renderedDevice, 0, true)
                 npc.RemoveItem(renderedDevice, aiCount=npc.GetItemCount(renderedDevice), abSilent=true)
                 If (enablePapyrusLogging)
                     Debug.Trace("[DDNF] Removed rendered device " + DDNF_Game.FormIdAsString(renderedDevice) + " from " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " because of missing inventory device.")
@@ -1407,7 +1407,7 @@ Bool Function FixInconsistentDevices(Actor npc, Armor[] newRenderedDevices, Armo
                 backScanIndex -= 1
             EndWhile
             If (deviceToRemove != None)
-                npc.UnequipItem(deviceToRemove, abPreventEquip=true, abSilent=true)
+                npc.UnequipItemEx(deviceToRemove, 0, true)
                 npc.RemoveItem(deviceToRemove, aiCount=npc.GetItemCount(deviceToRemove), abSilent=true)
                 If (enablePapyrusLogging)
                     Debug.Trace("[DDNF] Removed rendered device " + DDNF_Game.FormIdAsString(deviceToRemove) + " from " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " to resolve slot mask conflicts.")
@@ -1744,7 +1744,7 @@ Event OnUpdateGameTime()
                     If (npcTracker.EnablePapyrusLogging)
                         Debug.Trace("[DDNF] Escape system: Not triggering attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " (PAHE slave decided to not struggle).")
                     EndIf
-                ElseIf (!treatAsCurrentFollower && npcTracker.PahDomModId != 255 && !DDNF_DomShim.StruggleAgainstRestraints(npc))
+                ElseIf (!treatAsCurrentFollower && npcTracker.PahDomModId != 255 && !DDNF_DomShim.StruggleAgainstRestraints(npc, npcTracker.PahDomIsEsm))
                     If (npcTracker.EnablePapyrusLogging)
                         Debug.Trace("[DDNF] Escape system: Not triggering attempt for " + DDNF_Game.FormIdAsString(npc) + " " + npc.GetDisplayName() + " (DOM slave decided to not struggle).")
                     EndIf
@@ -1866,7 +1866,7 @@ Int Function PerformEscapeAttempt(Bool suppressNotifications, Bool respectCooldo
         EndIf
         Return -1
     EndIf
-    If (npcTracker.PahDomModId != 255 && DDNF_DomShim.IsTied(npc))
+    If (npcTracker.PahDomModId != 255 && DDNF_DomShim.IsTied(npc, npcTracker.PahDomIsEsm))
         If (npcTracker.EnablePapyrusLogging)
             Debug.Trace("[DDNF] Aborting escape attempt for " + npcFormIdAndName + " because npc is a tied DOM slave.")
         EndIf
@@ -2421,6 +2421,14 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool struggle
         Return new Bool[1]
     EndIf
     Bool enablePapyrusLogging = npcTracker.EnablePapyrusLogging
+    String npcFormId = ""
+    String npcFormIdAndName = ""
+    String deviceFormIdAndName = ""
+    If (enablePapyrusLogging)
+        npcFormId = DDNF_Game.FormIdAsString(npc)
+        npcFormIdAndName = npcFormId + " " + npc.GetDisplayName()
+        deviceFormIdAndName = DDNF_Game.FormIdAsString(device) + " " + device.GetName()
+    EndIf
 
     ; analyze the device and calculate escape chances
     ObjectReference tempRef = npcTracker.Player.PlaceAtMe(device, abInitiallyDisabled = true)
@@ -2428,6 +2436,31 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool struggle
     If (equipScript == None) ; not expected but handle it
         tempRef.Delete()
         Return new Bool[1]
+    EndIf
+    Bool supportsExtensionProtocol = equipScript.OnContainerChangedFilter(None, None) == npcTracker.EXTENSION_MAGIC
+    If (supportsExtensionProtocol)
+        Int preEscapeResult = equipScript.OnContainerChangedFilter(npc, equipScript)
+        If (preEscapeResult != npcTracker.EXTENSION_PRE_PROCEED && preEscapeResult != npcTracker.EXTENSION_MAGIC)
+            Bool[] extensionResult = new Bool[3]
+            extensionResult[0] = preEscapeResult == npcTracker.EXTENSION_PRE_SUCCESS
+            extensionResult[1] = preEscapeResult == npcTracker.EXTENSION_PRE_NO_CHANCE || preEscapeResult == npcTracker.EXTENSION_PRE_NO_CHANCE_NO_STRUGGLE
+            extensionResult[2] = preEscapeResult == npcTracker.EXTENSION_PRE_NO_STRUGGLE || preEscapeResult == npcTracker.EXTENSION_PRE_NO_CHANCE_NO_STRUGGLE 
+            If (enablePapyrusLogging)
+                If (extensionResult[0])
+                    Debug.Trace("[DDNF] " + npcFormIdAndName + " escaped " + deviceFormIdAndName + " (extension protocol).")
+                Else
+                    String failureDetails = ""
+                    If (extensionResult[1])
+                        failureDetails = ", no chance"
+                    EndIf
+                    If (extensionResult[2])
+                        failureDetails += ", no struggling"
+                    EndIf
+                    Debug.Trace("[DDNF] " + npcFormIdAndName + " failed to escape " + deviceFormIdAndName + " (extension protocol" + failureDetails + ").")
+                EndIf
+            EndIf
+            Return extensionResult
+        EndIf
     EndIf
     Int deviceFlags = AnalyzeMaybeDevice(ddLibs, ddLibs.zad_Lockable, true, ddLibs.zad_DeviousPlug, true, renderedDevice, false, enablePapyrusLogging)
     Bool deviceIsHeavyBondage = Math.LogicalAnd(deviceFlags, 4) == 4
@@ -2507,13 +2540,7 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool struggle
     EndIf
 
     ; try to escape using the selected method, notifying the player if the option is set
-    String npcFormId = ""
-    String npcFormIdAndName = ""
-    String deviceFormIdAndName = ""
     If (enablePapyrusLogging)
-        npcFormId = DDNF_Game.FormIdAsString(npc)
-        npcFormIdAndName = npcFormId + " " + npc.GetDisplayName()
-        deviceFormIdAndName = DDNF_Game.FormIdAsString(device) + " " + device.GetName()
         If (allowPickingLocks)
             Debug.Trace("[DDNF] " + npcFormIdAndName + " trying to escape " + deviceFormIdAndName + ": escapeMethod=" + escapeMethod + ", finalChance=" + finalChance + " (unlockChance=" + unlockChance + ", rawLockAccessChance=" + rawLockAccessChance + ", lockpickChance=" + lockpickChance + ", struggleChance=" + struggleChance + ").")
         Else
@@ -2529,6 +2556,9 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool struggle
         cooldown = equipScript.EscapeCooldown
         If (cooldown < equipScript.UnlockCooldown)
             cooldown = equipScript.UnlockCooldown ; use the worse value if chance is zero percent
+        EndIf
+        If (supportsExtensionProtocol)
+            equipScript.OnContainerChangedFilter(equipScript, npc) ; ignore result
         EndIf
     Else
         Faction strugglingFaction = None
@@ -2586,14 +2616,21 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool struggle
             Else
                 aborted = true
             EndIf
-            If (success && !npcTracker.UnlockDevice(npc, equipScript.deviceInventory, equipScript.deviceRendered, equipScript.zad_DeviousDevice))
+            If (success && !npcTracker.UnlockDevice(npc, equipScript.deviceInventory, equipScript.deviceRendered, equipScript.zad_DeviousDevice, true))
                 success = false
                 aborted = true
             EndIf
             If (!success)
                 cooldown = equipScript.UnlockCooldown
             EndIf
-            If (notifyPlayer && !aborted)
+            Bool skipNotify = false
+            If (supportsExtensionProtocol)
+                Int postEscapeResult = equipScript.OnContainerChangedFilter(equipScript, npc)
+                If (postEscapeResult != npcTracker.EXTENSION_POST_PROCEED && postEscapeResult != npcTracker.EXTENSION_MAGIC)
+                    skipNotify = postEscapeResult == npcTracker.EXTENSION_POST_NO_NOTIFY
+                EndIf
+            EndIf
+            If (notifyPlayer && !aborted && !skipNotify)
                 If (success)
                     If (equipScript.deviceKey == None)
                         Debug.Notification(npcName + " removed" + possessive + equipScript.deviceName)
@@ -2646,14 +2683,21 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool struggle
             Else
                 aborted = true
             EndIf
-            If (success && !npcTracker.UnlockDevice(npc, equipScript.deviceInventory, equipScript.deviceRendered, equipScript.zad_DeviousDevice))
+            If (success && !npcTracker.UnlockDevice(npc, equipScript.deviceInventory, equipScript.deviceRendered, equipScript.zad_DeviousDevice, true))
                 success = false
                 aborted = true
             EndIf
             If (!success)
                 cooldown = equipScript.EscapeCooldown
             EndIf
-            If (notifyPlayer && !aborted)
+            Bool skipNotify = false
+            If (supportsExtensionProtocol)
+                Int postEscapeResult = equipScript.OnContainerChangedFilter(equipScript, npc)
+                If (postEscapeResult != npcTracker.EXTENSION_POST_PROCEED && postEscapeResult != npcTracker.EXTENSION_MAGIC)
+                    skipNotify = postEscapeResult == npcTracker.EXTENSION_POST_NO_NOTIFY
+                EndIf
+            EndIf
+            If (notifyPlayer && !aborted && !skipNotify)
                 If (success)
                     Debug.Notification(npcName + " picked the lock of" + possessive + equipScript.deviceName)
                 ElseIf (failedToAccessLock)
@@ -2686,7 +2730,7 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool struggle
             Else
                 aborted = true
             EndIf
-            If (success && !npcTracker.UnlockDevice(npc, equipScript.deviceInventory, equipScript.deviceRendered, equipScript.zad_DeviousDevice))
+            If (success && !npcTracker.UnlockDevice(npc, equipScript.deviceInventory, equipScript.deviceRendered, equipScript.zad_DeviousDevice, true))
                 success = false
                 aborted = true
             EndIf
@@ -2696,7 +2740,14 @@ Bool[] Function TryToEscapeDevice(Armor device, Bool notifyPlayer, Bool struggle
                     cooldown = equipScript.UnlockCooldown ; use the worse value if chance is zero percent
                 EndIf
             EndIf
-            If (notifyPlayer && !aborted)
+            Bool skipNotify = false
+            If (supportsExtensionProtocol)
+                Int postEscapeResult = equipScript.OnContainerChangedFilter(equipScript, npc)
+                If (postEscapeResult != npcTracker.EXTENSION_POST_PROCEED && postEscapeResult != npcTracker.EXTENSION_MAGIC)
+                    skipNotify = postEscapeResult == npcTracker.EXTENSION_POST_NO_NOTIFY
+                EndIf
+            EndIf
+            If (notifyPlayer && !aborted && !skipNotify)
                 If (success)
                     Debug.Notification(npcName + " escaped " + possessive + equipScript.deviceName)
                 ElseIf (struggleChance == 0)

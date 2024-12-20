@@ -224,3 +224,8 @@ Version 0.7 beta 5
 - preliminary support for Devious Devices NG
 - forward zazWornWrist keyword to DD bondage if Powerofthree's Papyrus Extender is installed
 - allow configuring simple options for individual NPCs in MCM: ignore, always treat as follower
+
+Version 0.7 beta 6
+- support DOM 7.x
+- support unofficial extension protocol, allowing devices to modify or take over npc struggling
+- try to improve engine bug workarounds for missed equip events

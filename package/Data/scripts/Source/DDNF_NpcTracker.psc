@@ -53,6 +53,7 @@ Int Property DeviousContraptionsModId Auto
 Int Property PahModId Auto
 Int Property PahExtensionModId Auto
 Int Property PahDomModId Auto
+Bool Property PahDomIsEsm Auto
 Int Property PamaFurnitureModId Auto
 Int Property ZadFurniturePlacerModId Auto
 Bool Property IsDeviousDevicesNG Auto
@@ -64,6 +65,15 @@ Alias[] _cachedAliases ; performance optimization
 Form[] _cachedNpcs ; performance optimization
 Int _attemptedFixupsInPeriod
 
+Int Property EXTENSION_MAGIC                       = 0xdd0f AutoReadOnly
+Int Property EXTENSION_PRE_PROCEED                 = 0xdd1f AutoReadOnly
+Int Property EXTENSION_PRE_SUCCESS                 = 0xdd2f AutoReadOnly
+Int Property EXTENSION_PRE_REGULAR_FAILURE         = 0xdd3f AutoReadOnly
+Int Property EXTENSION_PRE_NO_CHANCE               = 0xdd4f AutoReadOnly
+Int Property EXTENSION_PRE_NO_STRUGGLE             = 0xdd5f AutoReadOnly
+Int Property EXTENSION_PRE_NO_CHANCE_NO_STRUGGLE   = 0xdd6f AutoReadOnly
+Int Property EXTENSION_POST_PROCEED                = 0xdd1f AutoReadOnly
+Int Property EXTENSION_POST_NO_NOTIFY              = 0xdd2f AutoReadOnly
 
 DDNF_NpcTracker Function Get() Global
     Return StorageUtil.GetFormValue(None, "DDNF_NpcTracker", None) as DDNF_NpcTracker
@@ -138,7 +148,13 @@ Function HandleGameLoaded(Bool upgrade)
     DeviousContraptionsModId = Game.GetModByName("Devious Devices - Contraptions.esm")
     PahModId = Game.GetModByName("paradise_halls.esm")
     PahExtensionModId = Game.GetModByName("paradise_halls_SLExtension.esp")
-    PahDomModId = Game.GetModByName("DiaryOfMine.esp")
+    PahDomModId = Game.GetModByName("DiaryOfMine.esm")
+    If (PahDomModId == 255)
+        PahDomModId = Game.GetModByName("DiaryOfMine.esp")
+        PahDomIsEsm = False
+    Else
+        PahDomIsEsm = True
+    Endif
     PamaFurnitureModId = Game.GetModByName("PamaFurnitureScr.esp")
     ZadFurniturePlacerModId = Game.GetModByName("ZAPFurniturePlacer.esp")
     Quest zadNGQuest = Game.GetFormFromFile(0xA0000D, "Devious Devices - Expansion.esm") as Quest
@@ -394,7 +410,7 @@ Function HandleDeviceRemoved(Actor akActor, Armor inventoryDevice)
         EndIf
         Return
     EndIf
-    Utility.Wait(2) ; allow some time for things to work
+    Utility.WaitMenuMode(2.0) ; allow some time for things to work
     Armor renderedDevice = GetRenderedDevice(inventoryDevice, false)
     If (akActor.GetItemCount(renderedDevice) == 0)
         String storageUtilTag = "ddnf_e_t" + DDNF_NpcTracker.GetOrCreateUniqueTag(inventoryDevice)
@@ -509,12 +525,29 @@ EndFunction
 ;
 ; Unequip a device from an NPC, with correct handling of soft dependencies.
 ;
-Bool Function UnlockDevice(Actor npc, Armor inventoryDevice, Armor renderedDevice, Keyword deviceKeyword)
+Bool Function UnlockDevice(Actor npc, Armor inventoryDevice, Armor renderedDevice, Keyword deviceKeyword, Bool requireCompleteUnequip)
+    Bool success
     Int inventoryDeviceModId = DDNF_Game.GetModId(inventoryDevice.GetFormID())
     If (inventoryDeviceModId == DeviouslyCursedLootModId && DDNF_DcurShim.UnlockDevice(Self, npc, inventoryDevice, renderedDevice, deviceKeyword))
-        Return true
+        success = true
+    Else
+        npc.UnequipItemEx(inventoryDevice, 0, true)
+        success = DDLibs.UnlockDevice(npc, inventoryDevice, renderedDevice, deviceKeyword, false, true)
     EndIf
-    Return DDLibs.UnlockDevice(npc, inventoryDevice, renderedDevice, deviceKeyword, false, true)
+    If (!success)
+        Return false
+    EndIf
+    If (requireCompleteUnequip)
+        Int waitCount = 50
+        While (waitCount > 0 && npc.GetItemCount(renderedDevice) > 0)
+            Utility.WaitMenuMode(0.1)
+            waitCount -= 1
+        EndWhile
+        If (waitCount == 0 && npc.GetItemCount(renderedDevice) > 0)
+            success = false
+        EndIf
+    EndIf
+    Return true
 EndFunction
 
 

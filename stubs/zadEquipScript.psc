@@ -11,6 +11,8 @@ Bool Property AllowLockPick Auto
 Form[] Property AllowedLockPicks Auto
 Float Property BaseEscapeChance Auto
 Float Property EscapeCooldown Auto
+Armor Property LinkedDeviceEquipOnTighten Auto
+Armor Property LinkedDeviceEquipOnUntighten Auto
 Float Property LockAccessDifficulty Auto
 Float Property LockPickEscapeChance Auto
 MiscObject Property Lockpick Auto
@@ -33,4 +35,8 @@ EndFunction
 String[] Function SelectStruggleArray(Actor akActor)
     String[] dummy
     Return dummy
+EndFunction
+
+Int Function OnContainerChangedFilter(ObjectReference akNewContainer, ObjectReference akOldContainer)
+    Return 0
 EndFunction

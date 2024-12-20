@@ -203,7 +203,7 @@ EndFunction
 
 ;
 ; Try to choose a device that is a good candidate for unequipping on a currently tracked NPC.
-; If unequipSelf is true then this function will assume that the NPC is trrying to unequip the device
+; If unequipSelf is true then this function will assume that the NPC is trying to unequip the device
 ; themselves, if false then this function will assume that somebody else is unequipping it.
 ; Unset respectCooldowns to ignore device cooldowns.
 ; This will return None if no device can be unequipped.
